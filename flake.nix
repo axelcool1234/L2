@@ -94,6 +94,14 @@
         # Enable no optional dependencies for production build.
         packages.default = virtualenv;
 
+        # Make runnable with `nix run`
+        apps.default = {
+          type = "app";
+          program = "${pkgs.writeShellScriptBin "loop-lang" ''
+            exec ${virtualenv}/bin/l2 "$@"
+          ''}/bin/loop-lang";
+        };
+
         # This example provides two different modes of development:
         # - Impurely using uv to manage virtual environments
         # - Pure development using uv2nix to manage virtual environments
@@ -180,7 +188,6 @@
               #
               # Enable all optional dependencies for development.
               virtualenv = editablePythonSet.mkVirtualEnv "loop-lang-dev-env" workspace.deps.all;
-
             in
             pkgs.mkShell {
               packages = [

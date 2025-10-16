@@ -1,2 +1,7 @@
-def main() -> None:
-    print("Hello from l2!")
+# src/l2/__init__.py
+
+"""
+LoopLang: a simple loop language used for loop invariant inference experimentation.
+"""
+
+from .__main__ import main

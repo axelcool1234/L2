@@ -4,4 +4,4 @@
 LoopLang: a simple loop language used for loop invariant inference experimentation.
 """
 
-from .__main__ import main
+from .core import grammar

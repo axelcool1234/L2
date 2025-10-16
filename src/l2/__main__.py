@@ -4,8 +4,21 @@
 LoopLang CLI entrypoint.
 """
 
+from l2 import grammar
+from lark import Lark
+
+
 def main() -> None:
-    print("Hello World!")
+    parser = Lark(grammar, start="program", parser="lalr")
+    code = """
+    x = 10
+    while %T {
+      y = x + 2
+    }
+    """
+    tree = parser.parse(code)
+    print(tree.pretty())
+
 
 if __name__ == "__main__":
     main()

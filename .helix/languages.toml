@@ -5,4 +5,4 @@ args = ["lsp"]
 [[language]]
 name = "python"
 auto-format = true
-language-servers = [ "pyrefly" ]
+language-servers = [ "pyrefly", "ruff" ]

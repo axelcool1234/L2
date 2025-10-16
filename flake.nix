@@ -112,7 +112,6 @@
             packages = [
               virtualenv
               pkgs.uv
-              pkgs.basedpyright
             ];
             env = {
               # Prevent uv from managing Python downloads
@@ -194,7 +193,6 @@
               packages = [
                 virtualenv
                 pkgs.uv
-                pkgs.basedpyright
               ];
 
               env = {

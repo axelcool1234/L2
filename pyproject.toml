@@ -1,7 +1,7 @@
 [project]
-name = "l2"
+name = "L2"
 version = "0.1.0"
-description = "Add your description here"
+description = "LoopLang: a simple loop language used for loop invariant inference experimentation."
 readme = "README.md"
 authors = [
     { name = "Axel Sorenson", email = "AxelPSorenson@gmail.com" }
@@ -9,9 +9,23 @@ authors = [
 requires-python = ">=3.13"
 dependencies = []
 
+[tool.pyrefly]
+project-includes = ["**/*"]
+project-excludes = [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/*venv/**/*",
+]
+
 [project.scripts]
 l2 = "l2:main"
 
 [build-system]
 requires = ["uv_build>=0.8.2,<0.9.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pyrefly>=0.37.0",
+    "ruff>=0.14.1",
+]

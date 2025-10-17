@@ -7,7 +7,7 @@ Loop Lang CLI entrypoint.
 from lark import Lark
 from xdsl.printer import Printer
 
-from l2 import L2Transformer, grammar
+from l2 import L2Interpreter, grammar
 
 
 def main() -> None:
@@ -22,17 +22,18 @@ def main() -> None:
     x = @F || @T
     y = x || @F || @T
     z = 1 + 3
+    r = 0
     """
     tree = parser.parse(code)
-    transformer = L2Transformer()
+    interpeter = L2Interpreter()
     printer = Printer()
-    transformer.transform(tree)
+    interpeter.visit(tree)
     try:
-        transformer.module.verify()
+        interpeter.module.verify()
     except Exception:
         print("module verification error")
         raise
-    printer.print_op(transformer.module)
+    printer.print_op(interpeter.module)
 
 
 if __name__ == "__main__":

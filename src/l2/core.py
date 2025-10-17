@@ -1,4 +1,9 @@
+from lark.lexer import Token
 from lark import Transformer
+from lark.visitors import (
+    Interpreter,
+    visit_children_decor,
+)
 from xdsl.builder import Builder
 from xdsl.dialects.arith import AddiOp, ConstantOp
 from xdsl.dialects.builtin import (
@@ -9,6 +14,7 @@ from xdsl.dialects.builtin import (
 )
 from xdsl.dialects.comb import AndOp, OrOp
 from xdsl.dialects.func import FuncOp, ReturnOp
+from xdsl.dialects.scf import WhileOp
 from xdsl.ir import Block, Region
 from xdsl.ir.core import Attribute, SSAValue
 from xdsl.rewriter import InsertPoint
@@ -20,12 +26,12 @@ grammar = r"""
 ?stmt: lvar "=" expr              -> assign_stmt
      | "while" expr "{" stmt* "}" -> loop_stmt
 
-?expr: expr "+" expr   -> add_expr
+expr: expr "+" expr   -> add_expr
      | expr "&&" expr  -> and_expr
      | expr "||" expr  -> or_expr
      | rvar
-     | INT
-     | BOOL
+     | INT -> int_expr
+     | BOOL -> bool_expr
 BOOL: "@T" | "@F"
 
 lvar: VAR
@@ -38,7 +44,7 @@ rvar: VAR
 """
 
 
-class L2Transformer(Transformer):
+class L2Interpreter(Interpreter):
     """
     Implementation of a simple MLIR emission from the L2 AST.
     """
@@ -81,38 +87,70 @@ class L2Transformer(Transformer):
         # Create an empty symbol table for variable name to SSA value mappings
         self.symbol_table = ScopedDict()
 
+    def _visit_tree(self, tree):
+        print("")
+        print(tree)
+        print("")
+        return super()._visit_tree(tree)
+
+    def unwrap(self, child):
+        if isinstance(child, list):
+            # Some children are wrapped in a single-element list by visit_children_decor
+            return child[0]
+        return child
+
+    @visit_children_decor
     def program(self, node) -> FuncOp:
         self.func_builder.insert(ReturnOp())
         return self.module_builder.insert(self.func)
 
+    @visit_children_decor
     def assign_stmt(self, node):
         assert self.symbol_table is not None
-        var_name = str(node[0].children[0])
+        var_name = str(node[0][0])
         expr_op = node[1]
         self.symbol_table[var_name] = expr_op.result
         return expr_op
 
     def loop_stmt(self, node):
+        """
+        node[0] = condition expression (should evaluate to i1)
+        node[1:] = body statements
+        """
+        print(node[0])
+        print(node[1:])
         pass
 
+    @visit_children_decor
     def add_expr(self, node) -> AddiOp:
-        return self.func_builder.insert(AddiOp(node[0], node[1]))
+        lhs = self.unwrap(node[0])
+        rhs = self.unwrap(node[1])
+        return self.func_builder.insert(AddiOp(lhs, rhs))
 
+    @visit_children_decor
     def or_expr(self, node) -> OrOp:
-        return self.func_builder.insert(OrOp([node[0], node[1]], i1))
+        lhs = self.unwrap(node[0])
+        rhs = self.unwrap(node[1])
+        return self.func_builder.insert(OrOp([lhs, rhs], i1))
 
+    @visit_children_decor
     def and_expr(self, node) -> AndOp:
-        return self.func_builder.insert(AndOp([node[0], node[1]], i1))
+        lhs = self.unwrap(node[0])
+        rhs = self.unwrap(node[1])
+        return self.func_builder.insert(AndOp([lhs, rhs], i1))
 
-    def INT(self, node):
-        return self.func_builder.insert(ConstantOp(IntegerAttr(int(node.value), i32)))
+    @visit_children_decor
+    def int_expr(self, node):
+        return self.func_builder.insert(ConstantOp(IntegerAttr(int(node[0]), i32)))
 
-    def BOOL(self, node) -> ConstantOp:
-        if node[1] == "T":
+    @visit_children_decor
+    def bool_expr(self, node) -> ConstantOp:
+        if node[0] == "@T":
             return self.func_builder.insert(ConstantOp(IntegerAttr(1, i1)))
-        else:  # node[1] == "F":
+        else:  # node[1] == "@F":
             return self.func_builder.insert(ConstantOp(IntegerAttr(0, i1)))
 
+    @visit_children_decor
     def rvar(self, node) -> SSAValue[Attribute]:
         assert self.symbol_table is not None
         var_name = str(node[0])

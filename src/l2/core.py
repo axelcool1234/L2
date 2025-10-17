@@ -1,22 +1,18 @@
-from xdsl.ir.core import Attribute
-from ast import BoolOp
-from xdsl.dialects.builtin import i32
-from xdsl.dialects.builtin import IntegerType
-from xdsl.dialects.comb import OrOp
-from xdsl.dialects.bigint import AddOp
-from xdsl.rewriter import InsertPoint
-from xdsl.ir.core import SSAValue
-from xdsl.utils.scoped_dict import ScopedDict
-from xdsl.dialects.builtin import ModuleOp
-from xdsl.builder import Builder
-from xdsl.dialects.builtin import IntegerAttr
-from xdsl.dialects.builtin import i1
-from xdsl.dialects.builtin import BoolAttr
-from xdsl.dialects.builtin import IntAttr
 from lark import Transformer
-from xdsl.dialects.arith import ConstantOp
-from xdsl.ir import Region, Block
-from xdsl.dialects.func import FuncOp
+from xdsl.builder import Builder
+from xdsl.dialects.arith import AddiOp, ConstantOp
+from xdsl.dialects.builtin import (
+    IntegerAttr,
+    ModuleOp,
+    i1,
+    i32,
+)
+from xdsl.dialects.comb import AndOp, OrOp
+from xdsl.dialects.func import FuncOp, ReturnOp
+from xdsl.ir import Block, Region
+from xdsl.ir.core import Attribute, SSAValue
+from xdsl.rewriter import InsertPoint
+from xdsl.utils.scoped_dict import ScopedDict
 
 grammar = r"""
 ?program: stmt+
@@ -86,6 +82,7 @@ class L2Transformer(Transformer):
         self.symbol_table = ScopedDict()
 
     def program(self, node) -> FuncOp:
+        self.func_builder.insert(ReturnOp())
         return self.module_builder.insert(self.func)
 
     def assign_stmt(self, node):
@@ -98,22 +95,22 @@ class L2Transformer(Transformer):
     def loop_stmt(self, node):
         pass
 
-    def add_expr(self, node) -> AddOp:
-        return self.func_builder.insert(AddOp(node[0], node[1]))
+    def add_expr(self, node) -> AddiOp:
+        return self.func_builder.insert(AddiOp(node[0], node[1]))
 
     def or_expr(self, node) -> OrOp:
-        print("HELLO!")
-        print(node[0])
-        print(node[1])
-        return self.func_builder.insert(OrOp(node[0], node[1]))
+        return self.func_builder.insert(OrOp([node[0], node[1]], i1))
 
-    def INT(self, node) -> ConstantOp:
+    def and_expr(self, node) -> AndOp:
+        return self.func_builder.insert(AndOp([node[0], node[1]], i1))
+
+    def INT(self, node):
         return self.func_builder.insert(ConstantOp(IntegerAttr(int(node.value), i32)))
 
     def BOOL(self, node) -> ConstantOp:
-        if node[0] == "T":
+        if node[1] == "T":
             return self.func_builder.insert(ConstantOp(IntegerAttr(1, i1)))
-        else:  # node[0] == "F":
+        else:  # node[1] == "F":
             return self.func_builder.insert(ConstantOp(IntegerAttr(0, i1)))
 
     def rvar(self, node) -> SSAValue[Attribute]:

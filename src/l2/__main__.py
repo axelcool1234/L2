@@ -4,9 +4,10 @@
 Loop Lang CLI entrypoint.
 """
 
-from xdsl.printer import Printer
-from l2 import grammar, L2Transformer
 from lark import Lark
+from xdsl.printer import Printer
+
+from l2 import L2Transformer, grammar
 
 
 def main() -> None:
@@ -18,13 +19,19 @@ def main() -> None:
     # }
     # """
     code = """
-    x = @T || @F
-    y = x || @T || @F 
+    x = @F || @T
+    y = x || @F || @T
+    z = 1 + 3
     """
     tree = parser.parse(code)
     transformer = L2Transformer()
     printer = Printer()
     transformer.transform(tree)
+    try:
+        transformer.module.verify()
+    except Exception:
+        print("module verification error")
+        raise
     printer.print_op(transformer.module)
 
 

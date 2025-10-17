@@ -23,6 +23,9 @@ def main() -> None:
     y = x || @F || @T
     z = 1 + 3
     r = 0
+    while @T {
+        r = r + 1
+    }
     """
     tree = parser.parse(code)
     interpeter = L2Interpreter()

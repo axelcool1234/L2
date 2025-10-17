@@ -26,12 +26,12 @@ grammar = r"""
 ?stmt: lvar "=" expr              -> assign_stmt
      | "while" expr "{" stmt* "}" -> loop_stmt
 
-expr: expr "+" expr   -> add_expr
+?expr: expr "+" expr   -> add_expr
      | expr "&&" expr  -> and_expr
      | expr "||" expr  -> or_expr
      | rvar
-     | INT -> int_expr
-     | BOOL -> bool_expr
+     | INT             -> int_expr
+     | BOOL            -> bool_expr
 BOOL: "@T" | "@F"
 
 lvar: VAR
@@ -87,11 +87,11 @@ class L2Interpreter(Interpreter):
         # Create an empty symbol table for variable name to SSA value mappings
         self.symbol_table = ScopedDict()
 
-    def _visit_tree(self, tree):
-        print("")
-        print(tree)
-        print("")
-        return super()._visit_tree(tree)
+    # def _visit_tree(self, tree):
+    #     print("")
+    #     print(tree)
+    #     print("")
+    #     return super()._visit_tree(tree)
 
     def unwrap(self, child):
         if isinstance(child, list):
@@ -117,8 +117,7 @@ class L2Interpreter(Interpreter):
         node[0] = condition expression (should evaluate to i1)
         node[1:] = body statements
         """
-        print(node[0])
-        print(node[1:])
+        print(node)
         pass
 
     @visit_children_decor

@@ -23,6 +23,8 @@ def main() -> None:
     y = x || @F || @T
     z = 1 + 3
     r = 0
+    a = r
+    a = a + 1
     while @T {
         r = r + 1
     }

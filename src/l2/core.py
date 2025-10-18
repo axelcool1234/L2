@@ -1,5 +1,7 @@
+from typing import Union
+from xdsl.ir.core import OpResult
+from typing import List
 from lark.lexer import Token
-from lark import Transformer
 from lark.visitors import (
     Interpreter,
     visit_children_decor,
@@ -19,6 +21,10 @@ from xdsl.ir import Block, Region
 from xdsl.ir.core import Attribute, SSAValue
 from xdsl.rewriter import InsertPoint
 from xdsl.utils.scoped_dict import ScopedDict
+
+Op = Union[AddiOp, OrOp, AndOp, ConstantOp]
+Use = Union[Op, OpResult]
+Node = List[Union[Token, Use]]
 
 grammar = r"""
 ?program: stmt+
@@ -87,73 +93,142 @@ class L2Interpreter(Interpreter):
         # Create an empty symbol table for variable name to SSA value mappings
         self.symbol_table = ScopedDict()
 
-    # def _visit_tree(self, tree):
-    #     print("")
-    #     print(tree)
-    #     print("")
-    #     return super()._visit_tree(tree)
+        # DEBUG MODE
+        self.debug = True
 
-    def unwrap(self, child):
-        if isinstance(child, list):
-            # Some children are wrapped in a single-element list by visit_children_decor
-            return child[0]
-        return child
+    def _dbg(self, name: str, node):
+        if self.debug:
+            print(f"\n[DEBUG] Visiting {name}:")
+            try:
+                print(f"  node = {node}")
+                print(f"  len(node) = {len(node)}")
+            except Exception:
+                print("  node missing")
+            finally:
+                print("  -----------------------")
 
-    @visit_children_decor
-    def program(self, node) -> FuncOp:
+            try:
+                print(f"  node[0] = {node[0]}")
+            except Exception:
+                print("  node[0] missing")
+            finally:
+                print("  -----------------------")
+
+            try:
+                print(f"  node[1] = {node[1]}")
+            except Exception:
+                print("  node[1] missing")
+            finally:
+                print("  -----------------------")
+
+    @visit_children_decor  # pyrefly: ignore
+    def program(self, node: Node) -> FuncOp:
+        self._dbg("program", node)
         self.func_builder.insert(ReturnOp())
         return self.module_builder.insert(self.func)
 
-    @visit_children_decor
-    def assign_stmt(self, node):
+    @visit_children_decor  # pyrefly: ignore
+    def assign_stmt(self, node: Node) -> Use:
+        """
+        node[0] = [Token('VAR', var_name)]
+        node[1] = AddiOp | OrOp | AndOp | ConstantOp | OpResult
+        """
+        self._dbg("assign_stmt", node)
         assert self.symbol_table is not None
-        var_name = str(node[0][0])
-        expr_op = node[1]
-        self.symbol_table[var_name] = expr_op.result
-        return expr_op
+        assert len(node) == 2
+        assert isinstance(node[0], Token)
+        assert isinstance(node[1], Use)
+
+        var_name = str(node[0])
+        if isinstance(node[1], OpResult):
+            self.symbol_table[var_name] = node[1]
+        else:
+            assert isinstance(node[1], Op)
+            self.symbol_table[var_name] = node[1].result
+        return node[1]
 
     def loop_stmt(self, node):
         """
         node[0] = condition expression (should evaluate to i1)
         node[1:] = body statements
         """
-        print(node)
-        pass
+        self._dbg("loop_stmt", node)
 
-    @visit_children_decor
-    def add_expr(self, node) -> AddiOp:
-        lhs = self.unwrap(node[0])
-        rhs = self.unwrap(node[1])
-        return self.func_builder.insert(AddiOp(lhs, rhs))
+    @visit_children_decor  # pyrefly: ignore
+    def add_expr(self, node: List[Use]) -> AddiOp:
+        self._dbg("add_expr", node)
+        assert len(node) == 2
+        assert isinstance(node[0], Use)
+        assert isinstance(node[1], Use)
 
-    @visit_children_decor
-    def or_expr(self, node) -> OrOp:
-        lhs = self.unwrap(node[0])
-        rhs = self.unwrap(node[1])
-        return self.func_builder.insert(OrOp([lhs, rhs], i1))
+        return self.func_builder.insert(AddiOp(node[0], node[1]))
 
-    @visit_children_decor
-    def and_expr(self, node) -> AndOp:
-        lhs = self.unwrap(node[0])
-        rhs = self.unwrap(node[1])
-        return self.func_builder.insert(AndOp([lhs, rhs], i1))
+    @visit_children_decor  # pyrefly: ignore
+    def or_expr(self, node: List[Use]) -> OrOp:
+        self._dbg("or_expr", node)
+        assert len(node) == 2
+        assert isinstance(node[0], Use)
+        assert isinstance(node[1], Use)
 
-    @visit_children_decor
-    def int_expr(self, node):
+        return self.func_builder.insert(OrOp([node[0], node[1]], i1))
+
+    @visit_children_decor  # pyrefly: ignore
+    def and_expr(self, node: List[Use]) -> AndOp:
+        self._dbg("and_expr", node)
+        assert len(node) == 2
+        assert isinstance(node[0], Use)
+        assert isinstance(node[1], Use)
+
+        return self.func_builder.insert(AndOp([node[0], node[1]], i1))
+
+    @visit_children_decor  # pyrefly: ignore
+    def int_expr(self, node: List[Token]) -> ConstantOp:
+        """
+        node[0] = [Token('INT', '[0-9]')]
+        """
+        self._dbg("int_expr", node)
+        assert len(node) == 1
+        assert isinstance(node[0], Token)
+
         return self.func_builder.insert(ConstantOp(IntegerAttr(int(node[0]), i32)))
 
-    @visit_children_decor
-    def bool_expr(self, node) -> ConstantOp:
+    @visit_children_decor  # pyrefly: ignore
+    def bool_expr(self, node: List[Token]) -> ConstantOp:
+        """
+        node[0] = [Token('BOOL', '@T' | '@F')]
+        """
+        self._dbg("bool_expr", node)
+        assert len(node) == 1
+        assert isinstance(node[0], Token)
+
         if node[0] == "@T":
             return self.func_builder.insert(ConstantOp(IntegerAttr(1, i1)))
         else:  # node[1] == "@F":
             return self.func_builder.insert(ConstantOp(IntegerAttr(0, i1)))
 
-    @visit_children_decor
-    def rvar(self, node) -> SSAValue[Attribute]:
+    @visit_children_decor  # pyrefly: ignore
+    def rvar(self, node: List[Token]) -> SSAValue[Attribute]:
+        """
+        node[0] = [Token('VAR', rvar)]
+        """
+        self._dbg("rvar", node)
+        assert len(node) == 1
         assert self.symbol_table is not None
+        assert isinstance(node[0], Token)
+
         var_name = str(node[0])
         try:
             return self.symbol_table[var_name]
         except Exception as e:
             raise Exception(f"error: Unknown variable `{var_name}`") from e
+
+    @visit_children_decor  # pyrefly: ignore
+    def lvar(self, node: List[Token]) -> Token:
+        """
+        node[0] = [Token('VAR', lvar)]
+        """
+        self._dbg("lvar", node)
+        assert len(node) == 1
+        assert isinstance(node[0], Token)
+
+        return node[0]  # unwrap

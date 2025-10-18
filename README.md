@@ -5,7 +5,8 @@ Install Nix using the Determinate Systems installer which automatically sets up 
 curl -fsSL https://install.determinate.systems/nix | sh -s -- install
 ```
 
-# Enter the Nix Shell
+# Enter the Nix Shell (one of these two commands)
+`nix develop "github:axelcool1234/L2#uv2nix"`
 `nix develop "github:axelcool1234/L2#impure"`
 
 # Run the Program

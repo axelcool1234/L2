@@ -34,27 +34,55 @@ Op = Union[
 Use = Union[Op, OpResult, BlockArgument]
 Node = List[Union[Token, Use]]
 
+# Precedence levels (lowest -> highest):
+# 1. Boolean or  (||)
+# 2. Boolean and (&&)
+# 3. Comparisons (<, >, <=, >=, ==, !=)
+# 4. Addition (+)
+# 5. Boolean negation (!)
+# 6. Parentheses / literals / variables
+
 grammar = r"""
 ?program: stmt+
 
-?stmt: lvar "=" expr              -> assign_stmt
-     | "while" expr "{" stmt* "}" -> loop_stmt
-     | "%print" expr              -> print_stmt
-     | "%println" expr            -> println_stmt
+?stmt: lvar "=" expr               -> assign_stmt
+     | "while" expr "{" stmt* "}"  -> loop_stmt
+     | "%print" expr               -> print_stmt
+     | "%println" expr             -> println_stmt
 
-?expr: expr "+" expr  -> add_expr
-     | expr "&&" expr -> and_expr
-     | "!" expr       -> negate_expr
-     | expr "||" expr -> or_expr
-     | expr "<" expr  -> ult_expr
-     | expr ">" expr  -> ugt_expr
-     | expr ">=" expr -> uge_expr
-     | expr "<=" expr -> ule_expr
-     | expr "==" expr -> eq_expr
-     | expr "!=" expr -> ne_expr
+?expr: or_expr
+
+# Boolean or has the lowest precedence
+?or_expr: and_expr
+        | or_expr "||" and_expr    -> or_expr
+
+# Boolean and has higher precedence than boolean or
+?and_expr: cmp_expr
+         | and_expr "&&" cmp_expr  -> and_expr
+
+# Comparisons
+?cmp_expr: add_expr
+         | cmp_expr "<"  add_expr  -> ult_expr
+         | cmp_expr ">"  add_expr  -> ugt_expr
+         | cmp_expr "<=" add_expr  -> ule_expr
+         | cmp_expr ">=" add_expr  -> uge_expr
+         | cmp_expr "==" add_expr  -> eq_expr
+         | cmp_expr "!=" add_expr  -> ne_expr
+
+# Addition
+?add_expr: unary_expr
+         | add_expr "+" unary_expr -> add_expr
+
+# Boolean negation
+?unary_expr: "!" unary_expr        -> negate_expr
+           | atom
+
+# Atoms have the highest precedence
+?atom: INT                         -> int_expr
+     | BOOL                        -> bool_expr
      | rvar
-     | INT            -> int_expr
-     | BOOL           -> bool_expr
+     | "(" expr ")"                -> paren_expr
+
 BOOL: "%T" | "%F"
 
 lvar: VAR
@@ -94,7 +122,7 @@ class IRGen(Interpreter):
     scope is destroyed and the mappings created in this scope are dropped.
     """
 
-    def __init__(self):
+    def __init__(self, debug=False):
         # Create empty module. Function containing all of the user's transformed L2 instructions will be placed in here at the end (in `program`).
         self.module = ModuleOp([])
         self.module_builder = Builder(InsertPoint.at_end(self.module.body.blocks[0]))
@@ -108,8 +136,8 @@ class IRGen(Interpreter):
         # Create an empty symbol table for variable name to SSA value mappings
         self.symbol_table = ScopedDict()
 
-        # DEBUG MODE
-        self.debug = True
+        # Debug mode
+        self.debug = debug
 
     def _dbg(self, name: str, node):
         if self.debug:
@@ -136,6 +164,40 @@ class IRGen(Interpreter):
             finally:
                 print("  -----------------------")
 
+    def _assert_binary(self, node: List[Use]):
+        assert len(node) == 2
+        assert isinstance(node[0], Use)
+        assert isinstance(node[1], Use)
+
+    def _assert_token(self, node: List[Token]):
+        assert len(node) == 1
+        assert isinstance(node[0], Token)
+
+    def _binary_op(self, op_type, node: List[Use], ast_name):
+        self._dbg(f"{ast_name}", node)
+        self._assert_binary(node)
+
+        return self.func_builder.insert(op_type(node[0], node[1]))
+
+    def _binary_logical_op(self, op_type, node: List[Use], ast_name):
+        self._dbg(f"{ast_name}", node)
+        self._assert_binary(node)
+
+        return self.func_builder.insert(op_type([node[0], node[1]], i1))
+
+    def _cmp_op(self, mnemonic, node: List[Use]) -> CmpiOp:
+        self._dbg(f"{mnemonic}_expr", node)
+        self._assert_binary(node)
+
+        return self.func_builder.insert(CmpiOp(node[0], node[1], mnemonic))
+
+    def _print_op(self, node: List[Use], fmt: str) -> PrintFormatOp:
+        assert self.symbol_table is not None
+        assert len(node) == 1
+        assert isinstance(node[0], Use)
+
+        return self.func_builder.insert(PrintFormatOp(fmt, node[0]))
+
     @visit_children_decor  # pyrefly: ignore
     def program(self, node: Node) -> FuncOp:
         self._dbg("program", node)
@@ -144,7 +206,7 @@ class IRGen(Interpreter):
 
     def loop_stmt(self, node: Tree) -> WhileOp:
         """
-        node[0] = condition expression (should evaluate to i1)
+        node[0] = condition expression
         node[1:] = body statements
         """
         self._dbg("loop_stmt", node)
@@ -239,7 +301,7 @@ class IRGen(Interpreter):
     def assign_stmt(self, node: Node) -> Use:
         """
         node[0] = [Token('VAR', var_name)]
-        node[1] = AddiOp | OrOp | AndOp | ConstantOp | OpResult
+        node[1] = Use
         """
         self._dbg("assign_stmt", node)
         assert self.symbol_table is not None
@@ -255,90 +317,62 @@ class IRGen(Interpreter):
             self.symbol_table[var_name] = node[1].result
         return node[1]
 
-    def print(self, node: List[Use], fmt: str) -> PrintFormatOp:
-        assert self.symbol_table is not None
-        assert len(node) == 1
-        assert isinstance(node[0], Use)
-
-        return self.func_builder.insert(PrintFormatOp(fmt, node[0]))
-
     @visit_children_decor  # pyrefly: ignore
     def print_stmt(self, node: List[Use]) -> PrintFormatOp:
         self._dbg("print_stmt", node)
-        return self.print(node, "{}")
+        return self._print_op(node, "{}")
 
     @visit_children_decor  # pyrefly: ignore
     def println_stmt(self, node: List[Use]) -> PrintFormatOp:
         self._dbg("println_stmt", node)
-        return self.print(node, "{}\n")
-
-    @visit_children_decor  # pyrefly: ignore
-    def add_expr(self, node: List[Use]) -> AddiOp:
-        self._dbg("add_expr", node)
-        assert len(node) == 2
-        assert isinstance(node[0], Use)
-        assert isinstance(node[1], Use)
-
-        return self.func_builder.insert(AddiOp(node[0], node[1]))
-
-    @visit_children_decor  # pyrefly: ignore
-    def or_expr(self, node: List[Use]) -> OrOp:
-        self._dbg("or_expr", node)
-        assert len(node) == 2
-        assert isinstance(node[0], Use)
-        assert isinstance(node[1], Use)
-
-        return self.func_builder.insert(OrOp([node[0], node[1]], i1))
+        return self._print_op(node, "{}\n")
 
     @visit_children_decor  # pyrefly: ignore
     def negate_expr(self, node: List[Use]) -> XorOp:
-        self._dbg("negate_expr", node)
-        assert len(node) == 1
-        assert isinstance(node[0], Use)
-
         true_const = self.func_builder.insert(ConstantOp(IntegerAttr(1, i1)))
-        return self.func_builder.insert(XorOp([node[0], true_const], i1))
+        return self._binary_logical_op(XorOp, [node[0], true_const], "negate_expr")
 
     @visit_children_decor  # pyrefly: ignore
     def and_expr(self, node: List[Use]) -> AndOp:
-        self._dbg("and_expr", node)
-        assert len(node) == 2
-        assert isinstance(node[0], Use)
-        assert isinstance(node[1], Use)
+        return self._binary_logical_op(AndOp, node, "and_expr")
 
-        return self.func_builder.insert(AndOp([node[0], node[1]], i1))
+    @visit_children_decor  # pyrefly: ignore
+    def or_expr(self, node: List[Use]) -> OrOp:
+        return self._binary_logical_op(OrOp, node, "or_expr")
 
-    def cmp(self, mnemonic, node: List[Use]) -> CmpiOp:
-        self._dbg(f"{mnemonic}_expr", node)
-        assert len(node) == 2
-        assert isinstance(node[0], Use)
-        assert isinstance(node[1], Use)
-
-        return self.func_builder.insert(CmpiOp(node[0], node[1], mnemonic))
+    @visit_children_decor  # pyrefly: ignore
+    def add_expr(self, node: List[Use]) -> AddiOp:
+        return self._binary_op(AddiOp, node, "add_expr")
 
     @visit_children_decor  # pyrefly: ignore
     def ult_expr(self, node: List[Use]) -> CmpiOp:
-        return self.cmp("ult", node)
+        return self._cmp_op("ult", node)
 
     @visit_children_decor  # pyrefly: ignore
     def ugt_expr(self, node: List[Use]) -> CmpiOp:
-        return self.cmp("ugt", node)
+        return self._cmp_op("ugt", node)
 
     @visit_children_decor  # pyrefly: ignore
     def uge_expr(self, node: List[Use]) -> CmpiOp:
-        return self.cmp("uge", node)
+        return self._cmp_op("uge", node)
 
     @visit_children_decor  # pyrefly: ignore
     def ule_expr(self, node: List[Use]) -> CmpiOp:
-        return self.cmp("ule", node)
+        return self._cmp_op("ule", node)
 
     @visit_children_decor  # pyrefly: ignore
     def eq_expr(self, node: List[Use]) -> CmpiOp:
-        return self.cmp("eq", node)
+        return self._cmp_op("eq", node)
 
     @visit_children_decor  # pyrefly: ignore
     def ne_expr(self, node: List[Use]) -> CmpiOp:
-        return self.cmp("ne", node)
+        return self._cmp_op("ne", node)
+
+    @visit_children_decor  # pyrefly: ignore
+    def paren_expr(self, node: List[Use]) -> Use:
+        self._dbg("paren_expr", node)
+        assert len(node) == 1
+        return node[0]
 
     @visit_children_decor  # pyrefly: ignore
     def int_expr(self, node: List[Token]) -> ConstantOp:
@@ -346,8 +380,7 @@ class IRGen(Interpreter):
         node[0] = [Token('INT', '[0-9]')]
         """
         self._dbg("int_expr", node)
-        assert len(node) == 1
-        assert isinstance(node[0], Token)
+        self._assert_token(node)
 
         return self.func_builder.insert(ConstantOp(IntegerAttr(int(node[0]), i32)))
 
@@ -357,8 +390,7 @@ class IRGen(Interpreter):
         node[0] = [Token('BOOL', '%T' | '%F')]
         """
         self._dbg("bool_expr", node)
-        assert len(node) == 1
-        assert isinstance(node[0], Token)
+        self._assert_token(node)
 
         if node[0] == "%T":
             return self.func_builder.insert(ConstantOp(IntegerAttr(1, i1)))
@@ -371,9 +403,8 @@ class IRGen(Interpreter):
         node[0] = [Token('VAR', rvar)]
         """
         self._dbg("rvar", node)
-        assert len(node) == 1
+        self._assert_token(node)
         assert self.symbol_table is not None
-        assert isinstance(node[0], Token)
 
         var_name = str(node[0])
         try:

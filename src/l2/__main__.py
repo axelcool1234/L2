@@ -41,6 +41,7 @@ def compile_loop_lang(
     output: Path | None,
     emit: str | None = None,
     run: bool = False,
+    debug: bool = False,
 ) -> None:
     def emit_check(step: str, code: ModuleOp | bytes) -> bool:
         if emit == step:
@@ -62,7 +63,7 @@ def compile_loop_lang(
     tree = parser.parse(l2_code)
 
     # AST -> MLIR
-    generator = IRGen()
+    generator = IRGen(debug)
     generator.visit(tree)
     try:
         generator.module.verify()
@@ -143,9 +144,15 @@ def main() -> None:
         action="store_true",
         help="Run the program immediately after compilation and discard the resulting binary",
     )
+    parser.add_argument(
+        "-d",
+        "--debug",
+        action="store_true",
+        help="Parser outputs information on each node visit",
+    )
     args = parser.parse_args()
 
-    compile_loop_lang(args.input_file, args.output, args.emit, args.run)
+    compile_loop_lang(args.input_file, args.output, args.emit, args.run, args.debug)
 
 
 if __name__ == "__main__":

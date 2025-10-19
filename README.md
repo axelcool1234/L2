@@ -12,7 +12,7 @@ curl -fsSL https://install.determinate.systems/nix | sh -s -- install
 # Run the Compiler
 `nix run "github:axelcool1234/L2"`
 ## With Flags
-`nix run "github:axelcool1234/L2" . -- [flags go here]`
+`nix run "github:axelcool1234/L2" [input_file] -- [flags go here]`
 
 # Build the Compiler
 `nix build "github:axelcool1234/L2"`

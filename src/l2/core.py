@@ -39,7 +39,8 @@ grammar = r"""
 
 ?stmt: lvar "=" expr              -> assign_stmt
      | "while" expr "{" stmt* "}" -> loop_stmt
-     | "|" expr                   -> print_stmt
+     | "%print" expr              -> print_stmt
+     | "%println" expr            -> println_stmt
 
 ?expr: expr "+" expr  -> add_expr
      | expr "&&" expr -> and_expr
@@ -54,7 +55,7 @@ grammar = r"""
      | rvar
      | INT            -> int_expr
      | BOOL           -> bool_expr
-BOOL: "@T" | "@F"
+BOOL: "%T" | "%F"
 
 lvar: VAR
 rvar: VAR
@@ -248,14 +249,22 @@ class L2Interpreter(Interpreter):
             self.symbol_table[var_name] = node[1].result
         return node[1]
 
-    @visit_children_decor  # pyrefly: ignore
-    def print_stmt(self, node: List[Use]) -> PrintFormatOp:
-        self._dbg("print_stmt", node)
+    def print(self, node: List[Use], fmt: str) -> PrintFormatOp:
         assert self.symbol_table is not None
         assert len(node) == 1
         assert isinstance(node[0], Use)
 
-        return self.func_builder.insert(PrintFormatOp("{}", node[0]))
+        return self.func_builder.insert(PrintFormatOp(fmt, node[0]))
+
+    @visit_children_decor  # pyrefly: ignore
+    def print_stmt(self, node: List[Use]) -> PrintFormatOp:
+        self._dbg("print_stmt", node)
+        return self.print(node, "{}")
+
+    @visit_children_decor  # pyrefly: ignore
+    def println_stmt(self, node: List[Use]) -> PrintFormatOp:
+        self._dbg("println_stmt", node)
+        return self.print(node, "{}\n")
 
     @visit_children_decor  # pyrefly: ignore
     def add_expr(self, node: List[Use]) -> AddiOp:
@@ -339,15 +348,15 @@ class L2Interpreter(Interpreter):
     @visit_children_decor  # pyrefly: ignore
     def bool_expr(self, node: List[Token]) -> ConstantOp:
         """
-        node[0] = [Token('BOOL', '@T' | '@F')]
+        node[0] = [Token('BOOL', '%T' | '%F')]
         """
         self._dbg("bool_expr", node)
         assert len(node) == 1
         assert isinstance(node[0], Token)
 
-        if node[0] == "@T":
+        if node[0] == "%T":
             return self.func_builder.insert(ConstantOp(IntegerAttr(1, i1)))
-        else:  # node[1] == "@F":
+        else:  # node[1] == "%F":
             return self.func_builder.insert(ConstantOp(IntegerAttr(0, i1)))
 
     @visit_children_decor  # pyrefly: ignore

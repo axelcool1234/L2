@@ -150,17 +150,19 @@ class IRGen(Interpreter):
         self._dbg("loop_stmt", node)
         assert self.symbol_table is not None
 
-        loop_vars = []
+        loop_carried_vars = []
         for stmt in node.children[1:]:
             if (
                 stmt.data == "assign_stmt"
             ):  # Tree('assign_stmt', [Tree(Token('RULE', 'lvar'), [Token('VAR', 'y')]), ... ])
-                loop_vars.append(stmt.children[0].children[0])
+                # Only worry about variables that existed before the loop
+                var = stmt.children[0].children[0]
+                assert isinstance(var, Token)
+                if var in self.symbol_table:
+                    loop_carried_vars.append(var)
 
-        # --- Prepare initial SSAValues ---
-        # ERROR: What about variables that are initialized per iteration?
-        # Fixing this would involve having the condition for the loop be done in the outer scope rather than the before region
-        initial_ssas = [self.symbol_table[var] for var in loop_vars]
+        # Initial SSAs
+        initial_ssas = [self.symbol_table[var] for var in loop_carried_vars]
         ssa_types = [ssa_val.type for ssa_val in initial_ssas]
 
         # Create before block, before block args, and before region
@@ -196,7 +198,7 @@ class IRGen(Interpreter):
         self.symbol_table = ScopedDict(old_symbols)
 
         # Map loop-carried variable names to the before block args
-        for name, ssa in zip(loop_vars, before_args):
+        for name, ssa in zip(loop_carried_vars, before_args):
             self.symbol_table[name] = ssa
 
         # Evaluate the condition inside the 'before' region (scf.while runs this first)
@@ -210,16 +212,16 @@ class IRGen(Interpreter):
         self.symbol_table = ScopedDict(old_symbols)
 
         # Map loop-carried variable names to the after block args
-        for name, ssa in zip(loop_vars, after_args):
+        for name, ssa in zip(loop_carried_vars, after_args):
             self.symbol_table[name] = ssa
 
         # Visit body statements
         for stmt in node.children[1:]:
             self.visit(stmt)
 
-        # Terminate the loop body region with scf.yield (no yielded values)
+        # Terminate the loop body region with scf.yield
         self.func_builder.insert(
-            YieldOp(*[self.symbol_table[var] for var in loop_vars])
+            YieldOp(*[self.symbol_table[var] for var in loop_carried_vars])
         )
 
         # Restore builder/scope

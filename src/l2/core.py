@@ -1,3 +1,7 @@
+from xdsl.ir.core import BlockArgument
+from xdsl.dialects.scf import YieldOp
+from xdsl.dialects.scf import ConditionOp
+from lark.tree import Tree
 from typing import Union
 from xdsl.ir.core import OpResult
 from typing import List
@@ -23,7 +27,7 @@ from xdsl.rewriter import InsertPoint
 from xdsl.utils.scoped_dict import ScopedDict
 
 Op = Union[AddiOp, OrOp, AndOp, ConstantOp]
-Use = Union[Op, OpResult]
+Use = Union[Op, OpResult, BlockArgument]
 Node = List[Union[Token, Use]]
 
 grammar = r"""
@@ -62,8 +66,6 @@ class L2Interpreter(Interpreter):
 
     module_builder: Builder
     func_builder: Builder
-    entry_block: Block
-    func_region: Region
     func: FuncOp
     """
     The builder is a helper class to create IR inside a function. The builder
@@ -85,10 +87,10 @@ class L2Interpreter(Interpreter):
         self.module_builder = Builder(InsertPoint.at_end(self.module.body.blocks[0]))
 
         # Create one singular function where every transformed L2 instruction will be inserted into.
-        self.entry_block = Block()
-        self.func_region = Region(self.entry_block)
-        self.func = FuncOp.from_region("main", [], [], self.func_region)
-        self.func_builder = Builder(InsertPoint.at_end(self.entry_block))
+        entry_block = Block()
+        func_region = Region(entry_block)
+        self.func = FuncOp.from_region("main", [], [], func_region)
+        self.func_builder = Builder(InsertPoint.at_end(entry_block))
 
         # Create an empty symbol table for variable name to SSA value mappings
         self.symbol_table = ScopedDict()
@@ -127,6 +129,89 @@ class L2Interpreter(Interpreter):
         self.func_builder.insert(ReturnOp())
         return self.module_builder.insert(self.func)
 
+    def loop_stmt(self, node: Tree):
+        """
+        node[0] = condition expression (should evaluate to i1)
+        node[1:] = body statements
+        """
+        self._dbg("loop_stmt", node)
+        assert self.symbol_table is not None
+
+        loop_vars = []
+        for stmt in node.children[1:]:
+            if (
+                stmt.data == "assign_stmt"
+            ):  # Tree('assign_stmt', [Tree(Token('RULE', 'lvar'), [Token('VAR', 'y')]), ... ])
+                loop_vars.append(stmt.children[0].children[0])
+
+        # --- Prepare initial SSAValues ---
+        # ERROR: What about variables that are initialized per iteration?
+        # Fixing this would involve having the condition for the loop be done in the outer scope rather than the before region
+        initial_ssas = [self.symbol_table[var] for var in loop_vars]
+        ssa_types = [ssa_val.type for ssa_val in initial_ssas]
+
+        # Create before block, before block args, and before region
+        before_block = Block()
+        before_args = [
+            before_block.insert_arg(arg_type=ssa_type, index=index)
+            for index, ssa_type in enumerate(ssa_types)
+        ]
+        before_region = Region(before_block)
+
+        # Create after block, after block args, and after region
+        after_block = Block()
+        after_args = [
+            after_block.insert_arg(arg_type=ssa_type, index=index)
+            for index, ssa_type in enumerate(ssa_types)
+        ]
+        after_region = Region(after_block)
+
+        # Build the WhileOp node
+        loop_op = WhileOp(
+            arguments=initial_ssas,
+            result_types=ssa_types,
+            before_region=before_region,
+            after_region=after_region,
+        )
+
+        # Save current builder/scope
+        old_builder = self.func_builder
+        old_symbols = self.symbol_table
+
+        # --- BEFORE REGION ---
+        self.func_builder = Builder(InsertPoint.at_end(before_block))
+        self.symbol_table = ScopedDict(old_symbols)
+
+        # Evaluate the condition inside the 'before' region (scf.while runs this first)
+        # NOTE: We do not use do-while loops, so nothing needs to be done in the before region beyond the condition.
+        cond_value_inner = self.visit(node.children[0])
+        assert isinstance(cond_value_inner, Use), "Loop condition must yield a value"
+        self.func_builder.insert(ConditionOp(cond_value_inner, *before_args))
+
+        # --- AFTER REGION ---
+        self.func_builder = Builder(InsertPoint.at_end(after_block))
+        self.symbol_table = ScopedDict(old_symbols)
+
+        # Map loop-carried variable names to the after block args
+        for name, ssa in zip(loop_vars, after_args):
+            self.symbol_table[name] = ssa
+
+        # Visit body statements
+        for stmt in node.children[1:]:
+            self.visit(stmt)
+
+        # Terminate the loop body region with scf.yield (no yielded values)
+        self.func_builder.insert(
+            YieldOp(*[self.symbol_table[var] for var in loop_vars])
+        )
+
+        # Restore builder/scope
+        self.func_builder = old_builder
+        self.symbol_table = old_symbols
+
+        # Insert loop op in parent region
+        return self.func_builder.insert(loop_op)
+
     @visit_children_decor  # pyrefly: ignore
     def assign_stmt(self, node: Node) -> Use:
         """
@@ -146,13 +231,6 @@ class L2Interpreter(Interpreter):
             assert isinstance(node[1], Op)
             self.symbol_table[var_name] = node[1].result
         return node[1]
-
-    def loop_stmt(self, node):
-        """
-        node[0] = condition expression (should evaluate to i1)
-        node[1:] = body statements
-        """
-        self._dbg("loop_stmt", node)
 
     @visit_children_decor  # pyrefly: ignore
     def add_expr(self, node: List[Use]) -> AddiOp:

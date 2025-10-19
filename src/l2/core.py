@@ -1,18 +1,13 @@
-from xdsl.dialects.printf import PrintFormatOp
-from xdsl.ir.core import BlockArgument
-from xdsl.dialects.scf import YieldOp
-from xdsl.dialects.scf import ConditionOp
-from lark.tree import Tree
-from typing import Union
-from xdsl.ir.core import OpResult
-from typing import List
+from typing import List, Union
+
 from lark.lexer import Token
+from lark.tree import Tree
 from lark.visitors import (
     Interpreter,
     visit_children_decor,
 )
 from xdsl.builder import Builder
-from xdsl.dialects.arith import AddiOp, ConstantOp
+from xdsl.dialects.arith import AddiOp, CmpiOp, ConstantOp
 from xdsl.dialects.builtin import (
     IntegerAttr,
     ModuleOp,
@@ -21,13 +16,14 @@ from xdsl.dialects.builtin import (
 )
 from xdsl.dialects.comb import AndOp, OrOp
 from xdsl.dialects.func import FuncOp, ReturnOp
-from xdsl.dialects.scf import WhileOp
+from xdsl.dialects.printf import PrintFormatOp
+from xdsl.dialects.scf import ConditionOp, WhileOp, YieldOp
 from xdsl.ir import Block, Region
-from xdsl.ir.core import Attribute, SSAValue
+from xdsl.ir.core import Attribute, BlockArgument, OpResult, SSAValue
 from xdsl.rewriter import InsertPoint
 from xdsl.utils.scoped_dict import ScopedDict
 
-Op = Union[AddiOp, OrOp, AndOp, ConstantOp]
+Op = Union[AddiOp, OrOp, AndOp, ConstantOp, CmpiOp]
 Use = Union[Op, OpResult, BlockArgument]
 Node = List[Union[Token, Use]]
 
@@ -36,14 +32,20 @@ grammar = r"""
 
 ?stmt: lvar "=" expr              -> assign_stmt
      | "while" expr "{" stmt* "}" -> loop_stmt
-     | ">" expr                   -> print_stmt
+     | "|" expr                   -> print_stmt
 
-?expr: expr "+" expr   -> add_expr
-     | expr "&&" expr  -> and_expr
-     | expr "||" expr  -> or_expr
+?expr: expr "+" expr  -> add_expr
+     | expr "&&" expr -> and_expr
+     | expr "||" expr -> or_expr
+     | expr "<" expr  -> ult_expr
+     | expr ">" expr  -> ugt_expr
+     | expr ">=" expr -> uge_expr
+     | expr "<=" expr -> ule_expr
+     | expr "==" expr -> eq_expr
+     | expr "!=" expr -> ne_expr
      | rvar
-     | INT             -> int_expr
-     | BOOL            -> bool_expr
+     | INT            -> int_expr
+     | BOOL           -> bool_expr
 BOOL: "@T" | "@F"
 
 lvar: VAR
@@ -184,10 +186,14 @@ class L2Interpreter(Interpreter):
         self.func_builder = Builder(InsertPoint.at_end(before_block))
         self.symbol_table = ScopedDict(old_symbols)
 
+        # Map loop-carried variable names to the before block args
+        for name, ssa in zip(loop_vars, before_args):
+            self.symbol_table[name] = ssa
+
         # Evaluate the condition inside the 'before' region (scf.while runs this first)
         # NOTE: We do not use do-while loops, so nothing needs to be done in the before region beyond the condition.
         cond_value_inner = self.visit(node.children[0])
-        assert isinstance(cond_value_inner, Use), "Loop condition must yield a value"
+        assert isinstance(cond_value_inner, Use)
         self.func_builder.insert(ConditionOp(cond_value_inner, *before_args))
 
         # --- AFTER REGION ---
@@ -269,6 +275,38 @@ class L2Interpreter(Interpreter):
         assert isinstance(node[1], Use)
 
         return self.func_builder.insert(AndOp([node[0], node[1]], i1))
+
+    def cmp(self, mnemonic, node: List[Use]) -> CmpiOp:
+        self._dbg(f"{mnemonic}_expr", node)
+        assert len(node) == 2
+        assert isinstance(node[0], Use)
+        assert isinstance(node[1], Use)
+
+        return self.func_builder.insert(CmpiOp(node[0], node[1], mnemonic))
+
+    @visit_children_decor  # pyrefly: ignore
+    def ult_expr(self, node: List[Use]) -> CmpiOp:
+        return self.cmp("ult", node)
+
+    @visit_children_decor  # pyrefly: ignore
+    def ugt_expr(self, node: List[Use]) -> CmpiOp:
+        return self.cmp("ugt", node)
+
+    @visit_children_decor  # pyrefly: ignore
+    def uge_expr(self, node: List[Use]) -> CmpiOp:
+        return self.cmp("uge", node)
+
+    @visit_children_decor  # pyrefly: ignore
+    def ule_expr(self, node: List[Use]) -> CmpiOp:
+        return self.cmp("ule", node)
+
+    @visit_children_decor  # pyrefly: ignore
+    def eq_expr(self, node: List[Use]) -> CmpiOp:
+        return self.cmp("eq", node)
+
+    @visit_children_decor  # pyrefly: ignore
+    def ne_expr(self, node: List[Use]) -> CmpiOp:
+        return self.cmp("ne", node)
 
     @visit_children_decor  # pyrefly: ignore
     def int_expr(self, node: List[Token]) -> ConstantOp:

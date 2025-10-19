@@ -47,7 +47,7 @@ grammar = r"""
 ?program: stmt+
 
 ?stmt: lvar "=" expr               -> assign_stmt
-     | "while" expr "{" stmt* "}"  -> loop_stmt
+     | "%while" expr "{" stmt* "}" -> loop_stmt
      | "%print" expr               -> print_stmt
      | "%println" expr             -> println_stmt
 

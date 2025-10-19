@@ -1,4 +1,5 @@
-from xdsl.dialects.arith import ExtUIOp
+# src/l2/core.py
+
 from typing import List, Union
 
 from lark.lexer import Token
@@ -8,7 +9,7 @@ from lark.visitors import (
     visit_children_decor,
 )
 from xdsl.builder import Builder
-from xdsl.dialects.arith import AddiOp, CmpiOp, ConstantOp, AndIOp, OrIOp, XOrIOp
+from xdsl.dialects.arith import AndIOp, ConstantOp, ExtUIOp, OrIOp, XOrIOp
 from xdsl.dialects.builtin import (
     IntegerAttr,
     ModuleOp,
@@ -16,6 +17,14 @@ from xdsl.dialects.builtin import (
     i32,
 )
 from xdsl.dialects.func import FuncOp, ReturnOp
+from xdsl.dialects.llvm import (
+    CallingConventionAttr,
+    LinkageAttr,
+    LLVMFunctionType,
+    LLVMPointerType,
+    LLVMVoidType,
+)
+from xdsl.dialects.llvm import FuncOp as LLVMFuncOp
 from xdsl.dialects.printf import PrintFormatOp
 from xdsl.dialects.scf import ConditionOp, WhileOp, YieldOp
 from xdsl.ir import Block, Region
@@ -23,13 +32,35 @@ from xdsl.ir.core import Attribute, BlockArgument, OpResult, SSAValue
 from xdsl.rewriter import InsertPoint
 from xdsl.utils.scoped_dict import ScopedDict
 
+from .dialects.bignum import (
+    AddOp,
+    BigNumType,
+    EqOp,
+    GteOp,
+    GtOp,
+    LteOp,
+    LtOp,
+    NeqOp,
+    PrintlnOp,
+    PrintOp,
+)
+from .dialects.bignum import ConstantOp as BigNumConstantOp
+
 Op = Union[
+    # arith
     AndIOp,
     OrIOp,
     XOrIOp,
     ConstantOp,
-    AddiOp,
-    CmpiOp,
+    # Bignum
+    AddOp,
+    EqOp,
+    NeqOp,
+    GtOp,
+    GteOp,
+    LtOp,
+    LteOp,
+    BigNumConstantOp,
 ]
 Use = Union[Op, OpResult, BlockArgument]
 Node = List[Union[Token, Use]]
@@ -181,22 +212,39 @@ class IRGen(Interpreter):
 
         return self.func_builder.insert(op_type(node[0], node[1]))
 
-    def _cmp_op(self, mnemonic, node: List[Use]) -> CmpiOp:
-        self._dbg(f"{mnemonic}_expr", node)
+    def _cmp_op(self, op_type, node: List[Use], ast_name):
+        self._dbg(f"{ast_name}", node)
         self._assert_binary(node)
 
-        return self.func_builder.insert(CmpiOp(node[0], node[1], mnemonic))
+        return self.func_builder.insert(op_type(node[0], node[1]))
 
-    def _print_op(self, node: List[Use], fmt: str) -> PrintFormatOp:
+    def _print_op(self, node: List[Use], fmt: str):
         assert self.symbol_table is not None
         assert len(node) == 1
         assert isinstance(node[0], Use)
+
         val = node[0]
+
+        # If the value is an Op, get its result SSAValue
         if isinstance(val, Op):
             val = val.result
+
+        # Handle boolean values
         if val.type == i1:
             val = self.func_builder.insert(ExtUIOp(val, i32))
-        return self.func_builder.insert(PrintFormatOp(fmt, val))
+            return self.func_builder.insert(PrintFormatOp(fmt, val))
+
+        # Handle bignums
+        elif isinstance(val.type, BigNumType):
+            # Call the GMP print function
+            if fmt == "{}":
+                return self.func_builder.insert(PrintOp(val))
+            else:  # fmt == "{}\n"
+                return self.func_builder.insert(PrintlnOp(val))
+
+        # Fallback: normal printing
+        else:
+            return self.func_builder.insert(PrintFormatOp(fmt, val))
 
     @visit_children_decor  # pyrefly: ignore
     def program(self, node: Node) -> FuncOp:
@@ -341,32 +389,32 @@ class IRGen(Interpreter):
         return self._binary_op(OrIOp, node, "or_expr")
 
     @visit_children_decor  # pyrefly: ignore
-    def add_expr(self, node: List[Use]) -> AddiOp:
-        return self._binary_op(AddiOp, node, "add_expr")
+    def add_expr(self, node: List[Use]) -> AddOp:
+        return self._binary_op(AddOp, node, "add_expr")
 
     @visit_children_decor  # pyrefly: ignore
-    def ult_expr(self, node: List[Use]) -> CmpiOp:
-        return self._cmp_op("ult", node)
+    def ult_expr(self, node: List[Use]):
+        return self._cmp_op(LtOp, node, "lt_expr")
 
     @visit_children_decor  # pyrefly: ignore
-    def ugt_expr(self, node: List[Use]) -> CmpiOp:
-        return self._cmp_op("ugt", node)
+    def ugt_expr(self, node: List[Use]):
+        return self._cmp_op(GtOp, node, "gt_expr")
 
     @visit_children_decor  # pyrefly: ignore
-    def uge_expr(self, node: List[Use]) -> CmpiOp:
-        return self._cmp_op("uge", node)
+    def uge_expr(self, node: List[Use]):
+        return self._cmp_op(GteOp, node, "ge_expr")
 
     @visit_children_decor  # pyrefly: ignore
-    def ule_expr(self, node: List[Use]) -> CmpiOp:
-        return self._cmp_op("ule", node)
+    def ule_expr(self, node: List[Use]):
+        return self._cmp_op(LteOp, node, "le_expr")
 
     @visit_children_decor  # pyrefly: ignore
-    def eq_expr(self, node: List[Use]) -> CmpiOp:
-        return self._cmp_op("eq", node)
+    def eq_expr(self, node: List[Use]):
+        return self._cmp_op(EqOp, node, "eq_expr")
 
     @visit_children_decor  # pyrefly: ignore
-    def ne_expr(self, node: List[Use]) -> CmpiOp:
-        return self._cmp_op("ne", node)
+    def ne_expr(self, node: List[Use]):
+        return self._cmp_op(NeqOp, node, "ne_expr")
 
     @visit_children_decor  # pyrefly: ignore
     def paren_expr(self, node: List[Use]) -> Use:
@@ -375,14 +423,15 @@ class IRGen(Interpreter):
         return node[0]
 
     @visit_children_decor  # pyrefly: ignore
-    def int_expr(self, node: List[Token]) -> ConstantOp:
+    def int_expr(self, node: List[Token]):
         """
-        node[0] = [Token('INT', '[0-9]')]
+        node[0] = Token('INT', '[0-9]+')
         """
         self._dbg("int_expr", node)
         self._assert_token(node)
 
-        return self.func_builder.insert(ConstantOp(IntegerAttr(int(node[0]), i32)))
+        value = int(node[0])
+        return self.func_builder.insert(BigNumConstantOp((IntegerAttr(value, i32))))
 
     @visit_children_decor  # pyrefly: ignore
     def bool_expr(self, node: List[Token]) -> ConstantOp:
@@ -422,3 +471,32 @@ class IRGen(Interpreter):
         assert isinstance(node[0], Token)
 
         return node[0]  # unwrap
+
+
+def insert_bignum_decls(module: ModuleOp):
+    builder = Builder(InsertPoint.at_start(module.body.blocks[0]))
+
+    # Helper to insert a function
+    def insert_func(name: str, inputs: list, output):
+        builder.insert(
+            LLVMFuncOp(
+                sym_name=name,
+                function_type=LLVMFunctionType(inputs=inputs, output=output),
+                linkage=LinkageAttr("external"),
+                cconv=CallingConventionAttr("ccc"),
+                visibility=0,
+            )
+        )
+
+    # Standard functions
+    ptr = LLVMPointerType.opaque()
+    insert_func("l2_bignum_from_i32", [i32], ptr)
+    insert_func("l2_bignum_add", [ptr, ptr], ptr)
+    insert_func("l2_bignum_print", [ptr], LLVMVoidType())
+    insert_func("l2_bignum_println", [ptr], LLVMVoidType())
+    insert_func("l2_bignum_free", [ptr], LLVMVoidType())
+
+    # Comparison functions returning i1
+    comparisons = ["lt", "lte", "gt", "gte", "eq", "neq"]
+    for cmp in comparisons:
+        insert_func(f"l2_bignum_{cmp}", [ptr, ptr], i1)

@@ -5,15 +5,32 @@ LoopLang CLI entrypoint.
 """
 
 import argparse
-import os
 import subprocess
 import tempfile
 from pathlib import Path
 
 from lark import Lark
-from xdsl.dialects.builtin import ModuleOp
+from xdsl.context import Context
+from xdsl.dialects import arith, func, printf, scf
+from xdsl.dialects.builtin import Builtin, ModuleOp
+from xdsl.dialects.llvm import LLVMPointerType
+from xdsl.dialects.scf import WhileOp
 
 from l2 import IRGen, grammar, precedence
+from l2.core import insert_bignum_decls
+from l2.dialects.bignum import BigNumType
+
+from .dialects import LowerBigNumToLLVM
+
+
+def context() -> Context:
+    ctx = Context()
+    ctx.load_dialect(arith.Arith)
+    ctx.load_dialect(Builtin)
+    ctx.load_dialect(func.Func)
+    ctx.load_dialect(printf.Printf)
+    ctx.load_dialect(scf.Scf)
+    return ctx
 
 
 def run_cmd(cmd, input_bytes=None) -> bytes:
@@ -65,20 +82,50 @@ def compile_loop_lang(
     # AST -> MLIR
     generator = IRGen(debug)
     generator.visit(tree)
+    module = generator.module
+    insert_bignum_decls(module)
     try:
-        generator.module.verify()
+        module.verify()
     except Exception:
         print("module verification error")
         raise
 
+    # Lower custom dialects first
+    ctx = context()
+    LowerBigNumToLLVM().apply(ctx, module)
+
+    for op in module.walk():
+        if isinstance(op, WhileOp):
+            # WARNING: Setting a read only property!
+            # Convert block arguments
+            before_block = op.before_region.blocks[0]
+            for i, arg in enumerate(before_block.args):
+                if isinstance(arg.type, BigNumType):
+                    arg._type = LLVMPointerType.opaque()
+
+            after_block = op.after_region.blocks[0]
+            for i, arg in enumerate(after_block.args):
+                if isinstance(arg.type, BigNumType):
+                    arg._type = LLVMPointerType.opaque()
+
+            # Convert result types
+            result_types = [
+                LLVMPointerType.opaque() if isinstance(t, BigNumType) else t
+                for t in op.result_types
+            ]
+
+            # WARNING: Setting a read only property!
+            for r, r_type in zip(op.results, result_types):
+                r._type = r_type
+
     # Emit MLIR and exit if specified
-    if emit_check("mlir", generator.module):
+    if emit_check("mlir", module):
         return
 
     # MLIR -> LLVM
     llvm_bytes = run_cmd(
         ["xdsl-opt", "--frontend", "mlir", "-p", "printf-to-llvm"],
-        input_bytes=str(generator.module).encode(),
+        input_bytes=str(module).encode(),
     )
     llvm_bytes = run_cmd(
         [
@@ -100,12 +147,36 @@ def compile_loop_lang(
         return
 
     # LLVM -> bin
+    # Write LLVM IR to temporary file
+    with tempfile.NamedTemporaryFile(suffix=".ll", delete=False) as tmp_ir:
+        tmp_ir.write(llvm_bytes)
+        tmp_ir_path = Path(tmp_ir.name)
+
+    # Compile runtime.c to object file
+    runtime_obj = tmp_ir_path.with_suffix(".o")
+    run_cmd(["clang", "-c", "src/runtime.c", "-o", str(runtime_obj)])
+
+    # Link LLVM IR + runtime object into final executable
+    if output is None:
+        if run:
+            output_path = tmp_ir_path.with_suffix("")
+        else:
+            output_path = Path("a.out")
+    else:
+        output_path = output
+
+    run_cmd(
+        ["clang", str(tmp_ir_path), str(runtime_obj), "-lgmp", "-o", str(output_path)]
+    )
+
+    # Cleanup temp files
+    tmp_ir_path.unlink()
+    runtime_obj.unlink()
+
+    # Optionally run the binary
     if run:
-        # Run program immediately after compilation
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            run_cmd(["clang", "-x", "ir", "-", "-o", tmp.name], input_bytes=llvm_bytes)
         try:
-            subprocess.run([tmp.name])
+            subprocess.run([str(output_path)])
         except subprocess.CalledProcessError as e:
             print("Run failed")
             if e.stdout:
@@ -115,11 +186,8 @@ def compile_loop_lang(
                 print("--- stderr ---")
                 print(e.stderr.decode())
             raise
-        os.remove(tmp.name)
-    else:
-        if output is None:
-            output = Path("a.out")
-        run_cmd(["clang", "-x", "ir", "-", "-o", str(output)], input_bytes=llvm_bytes)
+        finally:
+            output_path.unlink()
 
 
 def main() -> None:

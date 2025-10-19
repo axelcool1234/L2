@@ -98,6 +98,7 @@
             virtualenv
             pkgs.clang
             pkgs.llvmPackages.mlir
+            pkgs.gmp
           ];
 
           dontUnpack = true; # This isn't a source tarball, so don't unpack.
@@ -125,6 +126,7 @@
               pkgs.uv
               pkgs.clang
               pkgs.llvmPackages.mlir
+              pkgs.gmp
             ];
             env = {
               # Prevent uv from managing Python downloads
@@ -175,9 +177,14 @@
                         fileset = lib.fileset.unions [
                           (old.src + "/pyproject.toml")
                           (old.src + "/README.md")
+
                           (old.src + "/l2/__init__.py")
                           (old.src + "/l2/__main__.py")
                           (old.src + "/l2/core.py")
+
+                          (old.src + "/l2/dialects/__init__.py")
+                          (old.src + "/l2/dialects/bignum.py")
+                          (old.src + "/l2/dialects/bignum_to_llvm.py")
                         ];
                       };
 
@@ -209,6 +216,7 @@
                 pkgs.uv
                 pkgs.clang
                 pkgs.llvmPackages.mlir
+                pkgs.gmp
               ];
 
               env = {

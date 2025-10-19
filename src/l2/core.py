@@ -33,13 +33,15 @@ Op = Union[
 Use = Union[Op, OpResult, BlockArgument]
 Node = List[Union[Token, Use]]
 
-# Precedence levels (lowest -> highest):
-# 1. Boolean or  (||)
-# 2. Boolean and (&&)
-# 3. Comparisons (<, >, <=, >=, ==, !=)
-# 4. Addition (+)
-# 5. Boolean negation (!)
-# 6. Parentheses / literals / variables
+precedence = r"""
+Precedence levels (lowest -> highest):
+1. Boolean or  (||)
+2. Boolean and (&&)
+3. Comparisons (<, >, <=, >=, ==, !=)
+4. Addition (+)
+5. Boolean negation (!)
+6. Parentheses / literals / variables
+"""
 
 grammar = r"""
 ?program: stmt+

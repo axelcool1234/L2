@@ -4,16 +4,16 @@
 LoopLang CLI entrypoint.
 """
 
-from xdsl.dialects.builtin import ModuleOp
-from pathlib import Path
-from lark import Lark
-import tempfile
-import os
-
-from l2 import IRGen, grammar
-
-import subprocess
 import argparse
+import os
+import subprocess
+import tempfile
+from pathlib import Path
+
+from lark import Lark
+from xdsl.dialects.builtin import ModuleOp
+
+from l2 import IRGen, grammar, precedence
 
 
 def run_cmd(cmd, input_bytes=None) -> bytes:
@@ -124,7 +124,7 @@ def compile_loop_lang(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="LoopLang (L2) Compiler")
-    parser.add_argument("input_file", type=Path, help="LoopLang source file")
+    parser.add_argument("input_file", type=Path, nargs="?", help="LoopLang source file")
     parser.add_argument(
         "-o",
         "--output",
@@ -150,9 +150,26 @@ def main() -> None:
         action="store_true",
         help="Parser outputs information on each node visit",
     )
+    parser.add_argument(
+        "-g",
+        "--grammar",
+        action="store_true",
+        help="Display grammar and precedence rules for L2",
+    )
     args = parser.parse_args()
 
-    compile_loop_lang(args.input_file, args.output, args.emit, args.run, args.debug)
+    if args.grammar:
+        print(f"--- L2 Precedence Rules ---\n{precedence}")
+        print(f"--- L2 Grammar ---\n{grammar}")
+    else:
+        if args.input_file is None:
+            parser.error(
+                "the following arguments are required: input_file (unless -g/--grammar is used)"
+            )
+        else:
+            compile_loop_lang(
+                args.input_file, args.output, args.emit, args.run, args.debug
+            )
 
 
 if __name__ == "__main__":

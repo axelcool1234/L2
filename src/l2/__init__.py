@@ -4,4 +4,4 @@
 LoopLang: a simple loop language used for loop invariant inference experimentation.
 """
 
-from .core import grammar, IRGen
+from .core import grammar, precedence, IRGen

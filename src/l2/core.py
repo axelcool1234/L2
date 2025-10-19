@@ -7,14 +7,13 @@ from lark.visitors import (
     visit_children_decor,
 )
 from xdsl.builder import Builder
-from xdsl.dialects.arith import AddiOp, CmpiOp, ConstantOp
+from xdsl.dialects.arith import AddiOp, CmpiOp, ConstantOp, AndIOp, OrIOp, XOrIOp
 from xdsl.dialects.builtin import (
     IntegerAttr,
     ModuleOp,
     i1,
     i32,
 )
-from xdsl.dialects.comb import AndOp, OrOp, XorOp
 from xdsl.dialects.func import FuncOp, ReturnOp
 from xdsl.dialects.printf import PrintFormatOp
 from xdsl.dialects.scf import ConditionOp, WhileOp, YieldOp
@@ -24,9 +23,9 @@ from xdsl.rewriter import InsertPoint
 from xdsl.utils.scoped_dict import ScopedDict
 
 Op = Union[
-    AndOp,
-    OrOp,
-    XorOp,
+    AndIOp,
+    OrIOp,
+    XOrIOp,
     ConstantOp,
     AddiOp,
     CmpiOp,
@@ -179,12 +178,6 @@ class IRGen(Interpreter):
 
         return self.func_builder.insert(op_type(node[0], node[1]))
 
-    def _binary_logical_op(self, op_type, node: List[Use], ast_name):
-        self._dbg(f"{ast_name}", node)
-        self._assert_binary(node)
-
-        return self.func_builder.insert(op_type([node[0], node[1]], i1))
-
     def _cmp_op(self, mnemonic, node: List[Use]) -> CmpiOp:
         self._dbg(f"{mnemonic}_expr", node)
         self._assert_binary(node)
@@ -328,17 +321,17 @@ class IRGen(Interpreter):
         return self._print_op(node, "{}\n")
 
     @visit_children_decor  # pyrefly: ignore
-    def negate_expr(self, node: List[Use]) -> XorOp:
+    def negate_expr(self, node: List[Use]) -> XOrIOp:
         true_const = self.func_builder.insert(ConstantOp(IntegerAttr(1, i1)))
-        return self._binary_logical_op(XorOp, [node[0], true_const], "negate_expr")
+        return self._binary_op(XOrIOp, [node[0], true_const], "negate_expr")
 
     @visit_children_decor  # pyrefly: ignore
-    def and_expr(self, node: List[Use]) -> AndOp:
-        return self._binary_logical_op(AndOp, node, "and_expr")
+    def and_expr(self, node: List[Use]) -> AndIOp:
+        return self._binary_op(AndIOp, node, "and_expr")
 
     @visit_children_decor  # pyrefly: ignore
-    def or_expr(self, node: List[Use]) -> OrOp:
-        return self._binary_logical_op(OrOp, node, "or_expr")
+    def or_expr(self, node: List[Use]) -> OrIOp:
+        return self._binary_op(OrIOp, node, "or_expr")
 
     @visit_children_decor  # pyrefly: ignore
     def add_expr(self, node: List[Use]) -> AddiOp:

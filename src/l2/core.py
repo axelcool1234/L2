@@ -67,7 +67,7 @@ rvar: VAR
 """
 
 
-class L2Interpreter(Interpreter):
+class IRGen(Interpreter):
     """
     Implementation of a simple MLIR emission from the L2 AST.
     """

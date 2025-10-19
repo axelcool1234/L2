@@ -8,7 +8,7 @@ from xdsl.dialects.builtin import ModuleOp
 from pathlib import Path
 from lark import Lark
 
-from l2 import L2Interpreter, grammar
+from l2 import IRGen, grammar
 
 import subprocess
 import argparse
@@ -52,27 +52,27 @@ def compile_loop_lang(
 
     l2_code = input.read_text()
 
-    # Parse
+    # Source -> AST
     parser = Lark(grammar, start="program", parser="lalr")
     tree = parser.parse(l2_code)
 
     # AST -> MLIR
-    interpreter = L2Interpreter()
-    interpreter.visit(tree)
+    generator = IRGen()
+    generator.visit(tree)
     try:
-        interpreter.module.verify()
+        generator.module.verify()
     except Exception:
         print("module verification error")
         raise
 
     # Emit MLIR and exit if specified
-    if emit_check("mlir", interpreter.module):
+    if emit_check("mlir", generator.module):
         return
 
     # MLIR -> LLVM
     llvm_bytes = run_cmd(
         ["xdsl-opt", "--frontend", "mlir", "-p", "printf-to-llvm"],
-        input_bytes=str(interpreter.module).encode(),
+        input_bytes=str(generator.module).encode(),
     )
     llvm_bytes = run_cmd(
         [

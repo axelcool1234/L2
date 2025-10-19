@@ -14,7 +14,7 @@ from xdsl.dialects.builtin import (
     i1,
     i32,
 )
-from xdsl.dialects.comb import AndOp, OrOp
+from xdsl.dialects.comb import AndOp, OrOp, XorOp
 from xdsl.dialects.func import FuncOp, ReturnOp
 from xdsl.dialects.printf import PrintFormatOp
 from xdsl.dialects.scf import ConditionOp, WhileOp, YieldOp
@@ -23,7 +23,14 @@ from xdsl.ir.core import Attribute, BlockArgument, OpResult, SSAValue
 from xdsl.rewriter import InsertPoint
 from xdsl.utils.scoped_dict import ScopedDict
 
-Op = Union[AddiOp, OrOp, AndOp, ConstantOp, CmpiOp]
+Op = Union[
+    AndOp,
+    OrOp,
+    XorOp,
+    ConstantOp,
+    AddiOp,
+    CmpiOp,
+]
 Use = Union[Op, OpResult, BlockArgument]
 Node = List[Union[Token, Use]]
 
@@ -36,6 +43,7 @@ grammar = r"""
 
 ?expr: expr "+" expr  -> add_expr
      | expr "&&" expr -> and_expr
+     | "!" expr       -> negate_expr
      | expr "||" expr -> or_expr
      | expr "<" expr  -> ult_expr
      | expr ">" expr  -> ugt_expr
@@ -100,7 +108,7 @@ class L2Interpreter(Interpreter):
         self.symbol_table = ScopedDict()
 
         # DEBUG MODE
-        self.debug = False
+        self.debug = True
 
     def _dbg(self, name: str, node):
         if self.debug:
@@ -266,6 +274,15 @@ class L2Interpreter(Interpreter):
         assert isinstance(node[1], Use)
 
         return self.func_builder.insert(OrOp([node[0], node[1]], i1))
+
+    @visit_children_decor  # pyrefly: ignore
+    def negate_expr(self, node: List[Use]) -> XorOp:
+        self._dbg("negate_expr", node)
+        assert len(node) == 1
+        assert isinstance(node[0], Use)
+
+        true_const = self.func_builder.insert(ConstantOp(IntegerAttr(1, i1)))
+        return self.func_builder.insert(XorOp([node[0], true_const], i1))
 
     @visit_children_decor  # pyrefly: ignore
     def and_expr(self, node: List[Use]) -> AndOp:

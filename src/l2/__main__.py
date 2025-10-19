@@ -4,9 +4,9 @@
 LoopLang CLI entrypoint.
 """
 
+from xdsl.dialects.builtin import ModuleOp
 from pathlib import Path
 from lark import Lark
-from xdsl.printer import Printer
 
 from l2 import L2Interpreter, grammar
 
@@ -14,7 +14,7 @@ import subprocess
 import argparse
 
 
-def run_cmd(cmd, input_bytes=None):
+def run_cmd(cmd, input_bytes=None) -> bytes:
     try:
         result = subprocess.run(
             cmd,
@@ -34,7 +34,22 @@ def run_cmd(cmd, input_bytes=None):
         raise
 
 
-def compile_loop_lang(input: Path, output: Path | None = Path("a.out")):
+def compile_loop_lang(
+    input: Path, output: Path | None, emit: str | None = None
+) -> None:
+    def emit_check(step: str, code: ModuleOp | bytes) -> bool:
+        if emit == step:
+            if isinstance(code, bytes):
+                text = code.decode()
+            else:  # isinstance(code, ModuleOp)
+                text = str(code)
+            if output is None:
+                print(text)
+            else:
+                output.write_text(text)
+            return True
+        return False
+
     l2_code = input.read_text()
 
     # Parse
@@ -50,12 +65,16 @@ def compile_loop_lang(input: Path, output: Path | None = Path("a.out")):
         print("module verification error")
         raise
 
+    # Emit MLIR and exit if specified
+    if emit_check("mlir", interpreter.module):
+        return
+
     # MLIR -> LLVM
-    llvm_str = run_cmd(
+    llvm_bytes = run_cmd(
         ["xdsl-opt", "--frontend", "mlir", "-p", "printf-to-llvm"],
         input_bytes=str(interpreter.module).encode(),
     )
-    llvm_str = run_cmd(
+    llvm_bytes = run_cmd(
         [
             "mlir-opt",
             "--convert-scf-to-cf",
@@ -63,15 +82,21 @@ def compile_loop_lang(input: Path, output: Path | None = Path("a.out")):
             "--convert-arith-to-llvm",
             "--convert-func-to-llvm",
         ],
-        input_bytes=llvm_str,
+        input_bytes=llvm_bytes,
     )
-    llvm_str = run_cmd(
+    llvm_bytes = run_cmd(
         ["mlir-translate", "--mlir-to-llvmir"],
-        input_bytes=llvm_str,
+        input_bytes=llvm_bytes,
     )
 
+    # Emit LLVM and exit if specified
+    if emit_check("llvm", llvm_bytes):
+        return
+
     # LLVM -> bin
-    run_cmd(["clang", "-x", "ir", "-", "-o", str(output)], input_bytes=llvm_str)
+    if output is None:
+        output = Path("a.out")
+    run_cmd(["clang", "-x", "ir", "-", "-o", str(output)], input_bytes=llvm_bytes)
 
 
 def main() -> None:
@@ -81,12 +106,18 @@ def main() -> None:
         "-o",
         "--output",
         type=Path,
-        default=Path("a.out"),
+        default=None,
         help="Output executable name",
+    )
+    parser.add_argument(
+        "--emit",
+        choices=["mlir", "llvm"],
+        default=None,
+        help="Emit intermediate representation and stop",
     )
     args = parser.parse_args()
 
-    compile_loop_lang(args.input_file, args.output)
+    compile_loop_lang(args.input_file, args.output, args.emit)
 
 
 if __name__ == "__main__":

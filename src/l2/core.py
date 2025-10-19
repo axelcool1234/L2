@@ -43,8 +43,8 @@ from .dialects.bignum import (
     NeqOp,
     PrintlnOp,
     PrintOp,
+    ConstantOp as BigNumConstantOp,
 )
-from .dialects.bignum import ConstantOp as BigNumConstantOp
 
 Op = Union[
     # arith

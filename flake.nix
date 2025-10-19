@@ -124,6 +124,8 @@
             packages = [
               virtualenv
               pkgs.uv
+              pkgs.clang-tools
+
               pkgs.clang
               pkgs.llvmPackages.mlir
               pkgs.gmp
@@ -178,13 +180,14 @@
                           (old.src + "/pyproject.toml")
                           (old.src + "/README.md")
 
-                          (old.src + "/l2/__init__.py")
-                          (old.src + "/l2/__main__.py")
-                          (old.src + "/l2/core.py")
+                          (old.src + "/src/l2/__init__.py")
+                          (old.src + "/src/l2/__main__.py")
+                          (old.src + "/src/l2/core.py")
 
-                          (old.src + "/l2/dialects/__init__.py")
-                          (old.src + "/l2/dialects/bignum.py")
-                          (old.src + "/l2/dialects/bignum_to_llvm.py")
+                          (old.src + "/src/l2/dialects/__init__.py")
+                          (old.src + "/src/l2/dialects/bignum.py")
+                          (old.src + "/src/l2/dialects/bignum_to_llvm.py")
+                          (old.src + "/src/runtime.c")
                         ];
                       };
 
@@ -214,6 +217,8 @@
               packages = [
                 virtualenv
                 pkgs.uv
+                pkgs.clang-tools
+
                 pkgs.clang
                 pkgs.llvmPackages.mlir
                 pkgs.gmp

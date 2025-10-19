@@ -10,6 +10,8 @@ from xdsl.dialects.builtin import (
     ModuleOp,
     i32,
 )
+from xdsl.dialects.llvm import LLVMPointerType
+from xdsl.dialects.scf import WhileOp
 from xdsl.ir import Operation
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import (
@@ -22,6 +24,7 @@ from xdsl.pattern_rewriter import (
 
 from .bignum import (
     AddOp,
+    BigNumType,
     ConstantOp,
     EqOp,
     FreeOp,
@@ -176,3 +179,28 @@ class LowerBigNumToLLVM(ModulePass):
                 ]
             )
         ).rewrite_module(op)
+
+        # Lower `bignum` type
+        for single_op in op.walk():
+            if isinstance(single_op, WhileOp):
+                # WARNING: Setting a read only property!
+                # Convert block arguments
+                before_block = single_op.before_region.blocks[0]
+                for i, arg in enumerate(before_block.args):
+                    if isinstance(arg.type, BigNumType):
+                        arg._type = LLVMPointerType.opaque()
+
+                after_block = single_op.after_region.blocks[0]
+                for i, arg in enumerate(after_block.args):
+                    if isinstance(arg.type, BigNumType):
+                        arg._type = LLVMPointerType.opaque()
+
+                # Convert result types
+                result_types = [
+                    LLVMPointerType.opaque() if isinstance(t, BigNumType) else t
+                    for t in single_op.result_types
+                ]
+
+                # WARNING: Setting a read only property!
+                for r, r_type in zip(single_op.results, result_types):
+                    r._type = r_type

@@ -13,13 +13,10 @@ from lark import Lark
 from xdsl.context import Context
 from xdsl.dialects import arith, func, printf, scf
 from xdsl.dialects.builtin import Builtin, ModuleOp
-from xdsl.dialects.llvm import LLVMPointerType
-from xdsl.dialects.scf import WhileOp
 
 from l2 import IRGen, grammar, precedence
-from l2.core import insert_bignum_decls
-from l2.dialects.bignum import BigNumType
 
+from .core import insert_bignum_decls
 from .dialects import LowerBigNumToLLVM
 
 
@@ -90,37 +87,13 @@ def compile_loop_lang(
         print("module verification error")
         raise
 
-    # Lower custom dialects first
-    ctx = context()
-    LowerBigNumToLLVM().apply(ctx, module)
-
-    for op in module.walk():
-        if isinstance(op, WhileOp):
-            # WARNING: Setting a read only property!
-            # Convert block arguments
-            before_block = op.before_region.blocks[0]
-            for i, arg in enumerate(before_block.args):
-                if isinstance(arg.type, BigNumType):
-                    arg._type = LLVMPointerType.opaque()
-
-            after_block = op.after_region.blocks[0]
-            for i, arg in enumerate(after_block.args):
-                if isinstance(arg.type, BigNumType):
-                    arg._type = LLVMPointerType.opaque()
-
-            # Convert result types
-            result_types = [
-                LLVMPointerType.opaque() if isinstance(t, BigNumType) else t
-                for t in op.result_types
-            ]
-
-            # WARNING: Setting a read only property!
-            for r, r_type in zip(op.results, result_types):
-                r._type = r_type
-
     # Emit MLIR and exit if specified
     if emit_check("mlir", module):
         return
+
+    # Lower custom dialects first
+    ctx = context()
+    LowerBigNumToLLVM().apply(ctx, module)
 
     # MLIR -> LLVM
     llvm_bytes = run_cmd(

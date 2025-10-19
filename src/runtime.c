@@ -1,6 +1,5 @@
 // runtime.c
 #include <stdlib.h>
-#include <stdio.h>
 #include <gmp.h>
 
 typedef mpz_t *bignum_t; // pointer to mpz_t (allocated)
@@ -50,7 +49,6 @@ int l2_bignum_eq(bignum_t a, bignum_t b) {
 int l2_bignum_neq(bignum_t a, bignum_t b) {
     return mpz_cmp(*a, *b) != 0;
 }
-
 
 void l2_bignum_print(bignum_t a) {
     gmp_printf("%Zd", (*a));

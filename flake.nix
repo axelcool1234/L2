@@ -39,8 +39,6 @@
       system:
       let
         inherit (nixpkgs) lib;
-        inherit (pkgs.callPackages pyproject-nix.build.util { }) mkApplication;
-        inherit (pkgs.callPackage pyproject-nix.build.hacks { }) hacks;
         pkgs = import nixpkgs {
           inherit system;
           config.allowUnfree = true;

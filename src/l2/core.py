@@ -1,3 +1,4 @@
+from xdsl.dialects.arith import ExtUIOp
 from typing import List, Union
 
 from lark.lexer import Token
@@ -190,8 +191,12 @@ class IRGen(Interpreter):
         assert self.symbol_table is not None
         assert len(node) == 1
         assert isinstance(node[0], Use)
-
-        return self.func_builder.insert(PrintFormatOp(fmt, node[0]))
+        val = node[0]
+        if isinstance(val, Op):
+            val = val.result
+        if val.type == i1:
+            val = self.func_builder.insert(ExtUIOp(val, i32))
+        return self.func_builder.insert(PrintFormatOp(fmt, val))
 
     @visit_children_decor  # pyrefly: ignore
     def program(self, node: Node) -> FuncOp:

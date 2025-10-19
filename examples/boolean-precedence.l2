@@ -1,0 +1,4 @@
+x = %T
+y = %F
+z = !x || y && %T
+%print z

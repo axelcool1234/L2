@@ -103,7 +103,17 @@ def compile_loop_lang(
         # Run program immediately after compilation
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
             run_cmd(["clang", "-x", "ir", "-", "-o", tmp.name], input_bytes=llvm_bytes)
-        run_cmd([tmp.name])
+        try:
+            subprocess.run([tmp.name])
+        except subprocess.CalledProcessError as e:
+            print("Run failed")
+            if e.stdout:
+                print("--- stdout ---")
+                print(e.stdout.decode())
+            if e.stderr:
+                print("--- stderr ---")
+                print(e.stderr.decode())
+            raise
         os.remove(tmp.name)
     else:
         if output is None:

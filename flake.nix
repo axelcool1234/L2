@@ -39,6 +39,8 @@
       system:
       let
         inherit (nixpkgs) lib;
+        inherit (pkgs.callPackages pyproject-nix.build.util { }) mkApplication;
+        inherit (pkgs.callPackage pyproject-nix.build.hacks { }) hacks;
         pkgs = import nixpkgs {
           inherit system;
           config.allowUnfree = true;
@@ -86,20 +88,31 @@
                 pyprojectOverrides
               ]
             );
+
         virtualenv = pythonSet.mkVirtualEnv "loop-lang-env" workspace.deps.default;
       in
       {
-        # Package a virtual environment as our main application.
-        #
-        # Enable no optional dependencies for production build.
-        packages.default = virtualenv;
+        packages.default = pkgs.stdenv.mkDerivation {
+          pname = "l2";
+          version = "0.1.0";
 
-        # Make runnable with `nix run`
-        apps.default = {
-          type = "app";
-          program = "${pkgs.writeShellScriptBin "loop-lang" ''
+          buildInputs = [
+            virtualenv
+            pkgs.clang
+            pkgs.llvmPackages.mlir
+          ];
+
+          dontUnpack = true; # This isn't a source tarball, so don't unpack.
+
+          installPhase = ''
+            mkdir -p $out/bin
+            cat > $out/bin/l2 <<'EOF'
+            #!${pkgs.bash}/bin/bash
+            export PATH=${virtualenv}/bin:${pkgs.clang}/bin:${pkgs.llvmPackages.mlir}/bin:$PATH
             exec ${virtualenv}/bin/l2 "$@"
-          ''}/bin/loop-lang";
+            EOF
+            chmod +x $out/bin/l2
+          '';
         };
 
         # This example provides two different modes of development:
@@ -112,6 +125,8 @@
             packages = [
               virtualenv
               pkgs.uv
+              pkgs.clang
+              pkgs.llvmPackages.mlir
             ];
             env = {
               # Prevent uv from managing Python downloads
@@ -164,6 +179,7 @@
                           (old.src + "/README.md")
                           (old.src + "/l2/__init__.py")
                           (old.src + "/l2/__main__.py")
+                          (old.src + "/l2/core.py")
                         ];
                       };
 
@@ -193,6 +209,8 @@
               packages = [
                 virtualenv
                 pkgs.uv
+                pkgs.clang
+                pkgs.llvmPackages.mlir
               ];
 
               env = {

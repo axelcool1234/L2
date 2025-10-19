@@ -1,3 +1,4 @@
+from xdsl.dialects.printf import PrintFormatOp
 from xdsl.ir.core import BlockArgument
 from xdsl.dialects.scf import YieldOp
 from xdsl.dialects.scf import ConditionOp
@@ -35,6 +36,7 @@ grammar = r"""
 
 ?stmt: lvar "=" expr              -> assign_stmt
      | "while" expr "{" stmt* "}" -> loop_stmt
+     | ">" expr                   -> print_stmt
 
 ?expr: expr "+" expr   -> add_expr
      | expr "&&" expr  -> and_expr
@@ -96,7 +98,7 @@ class L2Interpreter(Interpreter):
         self.symbol_table = ScopedDict()
 
         # DEBUG MODE
-        self.debug = True
+        self.debug = False
 
     def _dbg(self, name: str, node):
         if self.debug:
@@ -129,7 +131,7 @@ class L2Interpreter(Interpreter):
         self.func_builder.insert(ReturnOp())
         return self.module_builder.insert(self.func)
 
-    def loop_stmt(self, node: Tree):
+    def loop_stmt(self, node: Tree) -> WhileOp:
         """
         node[0] = condition expression (should evaluate to i1)
         node[1:] = body statements
@@ -231,6 +233,15 @@ class L2Interpreter(Interpreter):
             assert isinstance(node[1], Op)
             self.symbol_table[var_name] = node[1].result
         return node[1]
+
+    @visit_children_decor  # pyrefly: ignore
+    def print_stmt(self, node: List[Use]) -> PrintFormatOp:
+        self._dbg("print_stmt", node)
+        assert self.symbol_table is not None
+        assert len(node) == 1
+        assert isinstance(node[0], Use)
+
+        return self.func_builder.insert(PrintFormatOp("{}", node[0]))
 
     @visit_children_decor  # pyrefly: ignore
     def add_expr(self, node: List[Use]) -> AddiOp:

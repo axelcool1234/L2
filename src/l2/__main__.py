@@ -7,6 +7,8 @@ LoopLang CLI entrypoint.
 from xdsl.dialects.builtin import ModuleOp
 from pathlib import Path
 from lark import Lark
+import tempfile
+import os
 
 from l2 import IRGen, grammar
 
@@ -35,7 +37,10 @@ def run_cmd(cmd, input_bytes=None) -> bytes:
 
 
 def compile_loop_lang(
-    input: Path, output: Path | None, emit: str | None = None
+    input: Path,
+    output: Path | None,
+    emit: str | None = None,
+    run: bool = False,
 ) -> None:
     def emit_check(step: str, code: ModuleOp | bytes) -> bool:
         if emit == step:
@@ -94,9 +99,16 @@ def compile_loop_lang(
         return
 
     # LLVM -> bin
-    if output is None:
-        output = Path("a.out")
-    run_cmd(["clang", "-x", "ir", "-", "-o", str(output)], input_bytes=llvm_bytes)
+    if run:
+        # Run program immediately after compilation
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            run_cmd(["clang", "-x", "ir", "-", "-o", tmp.name], input_bytes=llvm_bytes)
+        run_cmd([tmp.name])
+        os.remove(tmp.name)
+    else:
+        if output is None:
+            output = Path("a.out")
+        run_cmd(["clang", "-x", "ir", "-", "-o", str(output)], input_bytes=llvm_bytes)
 
 
 def main() -> None:
@@ -115,9 +127,15 @@ def main() -> None:
         default=None,
         help="Emit intermediate representation and stop",
     )
+    parser.add_argument(
+        "-r",
+        "--run",
+        action="store_true",
+        help="Run the program immediately after compilation and discard the resulting binary",
+    )
     args = parser.parse_args()
 
-    compile_loop_lang(args.input_file, args.output, args.emit)
+    compile_loop_lang(args.input_file, args.output, args.emit, args.run)
 
 
 if __name__ == "__main__":

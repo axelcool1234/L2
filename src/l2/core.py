@@ -228,6 +228,10 @@ class IRGen(Interpreter):
         self.func_builder = old_builder
         self.symbol_table = old_symbols
 
+        # Map loop-carried variable names to the final SSA values
+        for name, ssa in zip(loop_carried_vars, loop_op.res):
+            self.symbol_table[name] = ssa
+
         # Insert loop op in parent region
         return self.func_builder.insert(loop_op)
 

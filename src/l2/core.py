@@ -358,7 +358,7 @@ class IRGen(Interpreter):
         assert isinstance(node[1], Use)
 
         var_name = str(node[0])
-        if isinstance(node[1], OpResult):
+        if isinstance(node[1], (OpResult, BlockArgument)):
             self.symbol_table[var_name] = node[1]
         else:
             assert isinstance(node[1], Op)
@@ -366,12 +366,12 @@ class IRGen(Interpreter):
         return node[1]
 
     @visit_children_decor  # pyrefly: ignore
-    def print_stmt(self, node: List[Use]) -> PrintFormatOp:
+    def print_stmt(self, node: List[Use]) -> PrintFormatOp | PrintOp | PrintlnOp:
         self._dbg("print_stmt", node)
         return self._print_op(node, "{}")
 
     @visit_children_decor  # pyrefly: ignore
-    def println_stmt(self, node: List[Use]) -> PrintFormatOp:
+    def println_stmt(self, node: List[Use]) -> PrintFormatOp | PrintOp | PrintlnOp:
         self._dbg("println_stmt", node)
         return self._print_op(node, "{}\n")
 

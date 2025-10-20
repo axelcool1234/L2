@@ -1,0 +1,13 @@
+n = 100
+curr = 0
+prev1 = 1
+prev2 = 0
+i = 2
+%while i <= n {
+	curr = prev1 + prev2
+	%println curr
+
+	prev2 = prev1
+	prev1 = curr
+	i = i + 1
+}

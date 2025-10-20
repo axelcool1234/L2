@@ -108,6 +108,8 @@
             cat > $out/bin/l2 <<'EOF'
             #!${pkgs.bash}/bin/bash
             export PATH=${virtualenv}/bin:${pkgs.clang}/bin:${pkgs.llvmPackages.mlir}/bin:$PATH
+            export CFLAGS="-I${pkgs.gmp.dev}/include"
+            export LDFLAGS="-L${pkgs.gmp.out}/lib"
             exec ${virtualenv}/bin/l2 "$@"
             EOF
             chmod +x $out/bin/l2

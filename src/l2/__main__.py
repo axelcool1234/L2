@@ -5,6 +5,7 @@ LoopLang CLI entrypoint.
 """
 
 import argparse
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -14,8 +15,8 @@ from xdsl.context import Context
 from xdsl.dialects import arith, func, printf, scf
 from xdsl.dialects.builtin import Builtin, ModuleOp
 
-from l2 import IRGen, grammar, precedence, insert_bignum_decls
 from dialects import LowerBigNumToLLVM
+from l2 import IRGen, grammar, insert_bignum_decls, precedence
 
 
 def context() -> Context:
@@ -125,7 +126,19 @@ def compile_loop_lang(
 
     # Compile runtime.c to object file
     runtime_obj = tmp_ir_path.with_suffix(".o")
-    run_cmd(["clang", "-c", "src/dialects/bignum_runtime.c", "-o", str(runtime_obj)])
+
+    cflags = os.getenv("CFLAGS", "").split()
+    ldflags = os.getenv("LDFLAGS", "").split()
+    run_cmd(
+        [
+            "clang",
+            "-c",
+            "src/dialects/bignum_runtime.c",
+            "-o",
+            str(runtime_obj),
+            *cflags,
+        ]
+    )
 
     # Link LLVM IR + runtime object into final executable
     if output is None:
@@ -137,7 +150,15 @@ def compile_loop_lang(
         output_path = output
 
     run_cmd(
-        ["clang", str(tmp_ir_path), str(runtime_obj), "-lgmp", "-o", str(output_path)]
+        [
+            "clang",
+            str(tmp_ir_path),
+            str(runtime_obj),
+            "-lgmp",
+            "-o",
+            str(output_path),
+            *ldflags,
+        ]
     )
 
     # Cleanup temp files

@@ -32,7 +32,7 @@ from xdsl.ir.core import Attribute, BlockArgument, OpResult, SSAValue
 from xdsl.rewriter import InsertPoint
 from xdsl.utils.scoped_dict import ScopedDict
 
-from .dialects.bignum import (
+from dialects.bignum import (
     AddOp,
     BigNumType,
     EqOp,

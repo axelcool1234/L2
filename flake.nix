@@ -184,10 +184,10 @@
                           (old.src + "/src/l2/__main__.py")
                           (old.src + "/src/l2/core.py")
 
-                          (old.src + "/src/l2/dialects/__init__.py")
-                          (old.src + "/src/l2/dialects/bignum.py")
-                          (old.src + "/src/l2/dialects/bignum_to_llvm.py")
-                          (old.src + "/src/runtime.c")
+                          (old.src + "/src/dialects/__init__.py")
+                          (old.src + "/src/dialects/bignum.py")
+                          (old.src + "/src/dialects/bignum_to_llvm.py")
+                          (old.src + "/src/dialects/bignum_runtime.c")
                         ];
                       };
 

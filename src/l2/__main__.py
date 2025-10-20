@@ -14,10 +14,8 @@ from xdsl.context import Context
 from xdsl.dialects import arith, func, printf, scf
 from xdsl.dialects.builtin import Builtin, ModuleOp
 
-from l2 import IRGen, grammar, precedence
-
-from .core import insert_bignum_decls
-from .dialects import LowerBigNumToLLVM
+from l2 import IRGen, grammar, precedence, insert_bignum_decls
+from dialects import LowerBigNumToLLVM
 
 
 def context() -> Context:
@@ -127,7 +125,7 @@ def compile_loop_lang(
 
     # Compile runtime.c to object file
     runtime_obj = tmp_ir_path.with_suffix(".o")
-    run_cmd(["clang", "-c", "src/runtime.c", "-o", str(runtime_obj)])
+    run_cmd(["clang", "-c", "src/dialects/bignum_runtime.c", "-o", str(runtime_obj)])
 
     # Link LLVM IR + runtime object into final executable
     if output is None:

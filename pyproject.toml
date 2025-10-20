@@ -27,6 +27,9 @@ l2 = "l2.__main__:main"
 requires = ["uv_build>=0.8.2,<0.9.0"]
 build-backend = "uv_build"
 
+[tool.uv.build-backend]
+module-name = ["l2", "dialects"]
+
 [dependency-groups]
 dev = [
     "pyrefly>=0.37.0",

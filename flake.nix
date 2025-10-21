@@ -187,6 +187,7 @@
                           (old.src + "/src/l2/core.py")
 
                           (old.src + "/src/dialects/__init__.py")
+                          (old.src + "/src/dialects/bigint.py")
                           (old.src + "/src/dialects/bignum.py")
                           (old.src + "/src/dialects/bignum_to_llvm.py")
                           (old.src + "/src/dialects/bignum_runtime.c")

@@ -5,35 +5,25 @@ from typing import List, Union
 from lark.lexer import Token
 from lark.tree import Tree
 from lark.visitors import (
-    Interpreter,
+    Interpreter as LarkInterpreter,
+)
+from lark.visitors import (
     visit_children_decor,
 )
 from xdsl.builder import Builder
-from xdsl.dialects import arith, bigint, builtin, func, llvm, printf, scf
+from xdsl.dialects import arith, builtin, func, llvm, printf, scf
 from xdsl.dialects.builtin import IntegerAttr
 from xdsl.ir import Block, Region
-from xdsl.ir.core import Attribute, BlockArgument, OpResult, SSAValue
-from xdsl.irdl.operations import IRDLOperation, attr_def, irdl_op_definition, result_def
+from xdsl.ir.core import (
+    Attribute,
+    BlockArgument,
+    OpResult,
+    SSAValue,
+)
 from xdsl.rewriter import InsertPoint
 from xdsl.utils.scoped_dict import ScopedDict
 
-from dialects import bignum
-
-
-@irdl_op_definition
-class BigIntConstantOp(IRDLOperation):
-    name = "bigint.constant"
-
-    value = attr_def(IntegerAttr)
-    result = result_def(bigint.bigint)
-
-    def __init__(self, value: IntegerAttr):
-        super().__init__(
-            operands=[],
-            result_types=[bigint.bigint],
-            attributes={"value": value},
-        )
-
+from dialects import bigint, bignum
 
 Op = Union[
     arith.AndIOp,
@@ -48,7 +38,7 @@ Op = Union[
     bignum.LtOp,
     bignum.LteOp,
     bignum.ConstantOp,
-    BigIntConstantOp,
+    bigint.ConstantOp,
     bigint.AddOp,
     bigint.EqOp,
     bigint.NeqOp,
@@ -59,7 +49,13 @@ Op = Union[
 ]
 Use = Union[Op, OpResult, BlockArgument]
 Node = List[Union[Token, Use]]
-Print = Union[printf.PrintFormatOp, bignum.PrintOp, bignum.PrintlnOp]
+Print = Union[
+    printf.PrintFormatOp,
+    bignum.PrintOp,
+    bignum.PrintlnOp,
+    bigint.PrintOp,
+    bigint.PrintlnOp,
+]
 
 precedence = r"""
 Precedence levels (lowest -> highest):
@@ -124,7 +120,7 @@ rvar: VAR
 """
 
 
-class IRGen(Interpreter):
+class IRGen(LarkInterpreter):
     """
     Implementation of a simple MLIR emission from the L2 AST.
     """
@@ -198,6 +194,12 @@ class IRGen(Interpreter):
 
         return self._builder.insert(op_type(node[0], node[1]))
 
+    def _cmp_op(self, op_type, node: List[Use], ast_name):
+        self._dbg(f"{ast_name}", node)
+        self._assert_binary(node)
+
+        return self._builder.insert(op_type(node[0], node[1]))
+
     def _print_op(self, node: List[Use], fmt: str) -> Print:
         assert self._symbol_table is not None
         assert len(node) == 1
@@ -214,6 +216,14 @@ class IRGen(Interpreter):
             val = self._builder.insert(arith.ExtUIOp(val, builtin.i32))
             return self._builder.insert(printf.PrintFormatOp(fmt, val))
 
+        # Handle bigints
+        elif isinstance(val.type, bigint.BigIntegerType):
+            # Call the Python print function
+            if fmt == "{}":
+                return self._builder.insert(bigint.PrintOp(val))
+            else:  # fmt == "{}\n"
+                return self._builder.insert(bigint.PrintlnOp(val))
+
         # Handle bignums
         elif isinstance(val.type, bignum.BigNumType):
             # Call the GMP print function
@@ -225,12 +235,6 @@ class IRGen(Interpreter):
         # Fallback: normal printing
         else:
             return self._builder.insert(printf.PrintFormatOp(fmt, val))
-
-    def _cmp_op(self, op_type, node: List[Use], ast_name):
-        self._dbg(f"{ast_name}", node)
-        self._assert_binary(node)
-
-        return self._builder.insert(op_type(node[0], node[1]))
 
     @visit_children_decor  # pyrefly: ignore
     def assign_stmt(self, node: Node) -> Use:
@@ -467,7 +471,7 @@ class IRGenInterpreter(IRGen):
         self._assert_token(node)
 
         value = int(node[0])
-        return self._builder.insert(BigIntConstantOp(IntegerAttr(value, builtin.i32)))
+        return self._builder.insert(bigint.ConstantOp(IntegerAttr(value, builtin.i32)))
 
     # arith.ConstantOp.from_val()
 

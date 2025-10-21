@@ -43,13 +43,26 @@
           inherit system;
           config.allowUnfree = true;
         };
-        python = pkgs.python313;
+        python = pkgs.python313; # Your desired Python version
 
+        # 1. Load Project Workspace (parses pyproject.toml, uv.lock)
         # Load a uv workspace from a workspace root.
         # Uv2nix treats all uv projects as workspace projects.
+        #
+        # This function is your entry point. It inspects your workspaceRoot
+        # (your project directory) and parses pyproject.toml for project metadata
+        # and uv.lock for the exact dependency versions and hashes. The resulting
+        # workspace object is a treasure trove of information.
         workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = ./.; };
 
+        # 2. Generate Nix Overlay from uv.lock (via workspace)
         # Create package overlay from workspace.
+        #
+        # The workspace object has a handy method, mkPyprojectOverlay.
+        # This is where the core uv2nix magic happens. It takes the parsed
+        # lock file data and generates a Nix overlay. This overlay tells
+        # Nix, "For every Python package requested, if it was in my uv.lock,
+        # build that specific version."
         overlay = workspace.mkPyprojectOverlay {
           # Prefer prebuilt binary wheels as a package source.
           # Sdists are less likely to "just work" because of the metadata missing from uv.lock.
@@ -61,6 +74,9 @@
           # };
         };
 
+        # 3. Placeholder for Your Custom Package Overrides
+        # A place for you to fix any stubborn packages that need manual intervention to build in Nix.
+        #
         # Extend generated overlay with build fixups
         #
         # Uv2nix can only work with what it has, and uv.lock is missing essential metadata to perform some builds.
@@ -73,7 +89,12 @@
           # It's using https://pyproject-nix.github.io/pyproject.nix/build.html
         };
 
+        # 4. Construct the Final Python Package Set
         # Construct package set
+        #
+        # We start with a base Python package set from pyproject-nix
+        # (which provides fundamental Python building capabilities
+        # within Nix). Then, we apply a series of overlays.
         pythonSet =
           # Use base package set from pyproject.nix builders
           (pkgs.callPackage pyproject-nix.build.packages {
@@ -81,18 +102,37 @@
           }).overrideScope
             (
               lib.composeManyExtensions [
+                # Provides Nix packages for common Python build tools
+                # (like Setuptools, Wheel, Hatch). These are needed if
+                # uv2nix has to build any of your dependencies from source.
                 pyproject-build-systems.overlays.default
+
+                # This is our generated overlay. It ensures that any package
+                # also listed in your uv.lock will be resolved to the locked version.
                 overlay
+
+                # A place for you to fix any stubborn packages that need manual
+                # intervention to build in Nix.
                 pyprojectOverrides
               ]
             );
 
-        virtualenv = pythonSet.mkVirtualEnv "loop-lang-env" workspace.deps.default;
+        # After the overlays, your own project (as defined by [project.name] in pyproject.toml)
+        # becomes a package within pythonSet. We fetch it (e.g., pythonSet."my-app-name") to get
+        # its Nix-ified pname (package name) and version.
+        projectNameInToml = "l2"; # MUST match [project.name] in pyproject.toml!
+        projectAsNixPkg = pythonSet.${projectNameInToml};
+
+        # 5. Create the Python Runtime Environment
+        # Using mkVirtualEnv, we create an environment (virtualenv) that includes the direct dependencies
+        # of your project (listed in workspace.deps.default, which comes from pyproject.toml). Because
+        # these dependencies are resolved from pythonSet, they respect the versions in your uv.lock.
+        virtualenv = pythonSet.mkVirtualEnv (projectAsNixPkg.pname + "-env") workspace.deps.default; # Uses deps from pyproject.toml [project.dependencies]
       in
       {
         packages.default = pkgs.stdenv.mkDerivation {
-          pname = "l2";
-          version = "0.1.0";
+          pname = projectAsNixPkg.pname;
+          version = projectAsNixPkg.version;
 
           buildInputs = [
             virtualenv
@@ -116,7 +156,7 @@
           '';
         };
 
-        # This example provides two different modes of development:
+        # There are two different modes of development:
         # - Impurely using uv to manage virtual environments
         # - Pure development using uv2nix to manage virtual environments
         devShells = {
@@ -137,8 +177,6 @@
               UV_PYTHON_DOWNLOADS = "never";
               # Force uv to use nixpkgs Python interpreter
               UV_PYTHON = python.interpreter;
-
-              PJRT_DEVICE = "CPU"; # force torch_xla to use CPU backend
             }
             // lib.optionalAttrs pkgs.stdenv.isLinux {
               # Python libraries often load native shared objects using dlopen(3).
@@ -214,7 +252,7 @@
               # Build virtual environment, with local packages being editable.
               #
               # Enable all optional dependencies for development.
-              virtualenv = editablePythonSet.mkVirtualEnv "loop-lang-dev-env" workspace.deps.all;
+              virtualenv = editablePythonSet.mkVirtualEnv (projectAsNixPkg.pname + "-dev-env") workspace.deps.all;
             in
             pkgs.mkShell {
               packages = [
@@ -236,8 +274,6 @@
 
                 # Prevent uv from downloading managed Python's
                 UV_PYTHON_DOWNLOADS = "never";
-
-                PJRT_DEVICE = "CPU"; # force torch_xla to use CPU backend
               };
 
               shellHook = ''

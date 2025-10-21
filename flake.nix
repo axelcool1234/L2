@@ -130,10 +130,12 @@
         virtualenv = pythonSet.mkVirtualEnv (projectAsNixPkg.pname + "-env") workspace.deps.default; # Uses deps from pyproject.toml [project.dependencies]
       in
       {
+        # Nix Package for The Application
         packages.default = pkgs.stdenv.mkDerivation {
           pname = projectAsNixPkg.pname;
           version = projectAsNixPkg.version;
 
+          nativeBuildInputs = [ pkgs.makeWrapper ];
           buildInputs = [
             virtualenv
             pkgs.clang
@@ -141,20 +143,32 @@
             pkgs.gmp
           ];
 
-          dontUnpack = true; # This isn't a source tarball, so don't unpack.
+          # src = ...
+          # This isn't a source tarball, so don't unpack
+          # (additionally, this means we don't need a src
+          # attribute, as commented out above)
+          #
+          # mkDerivation normally expects some source files in $src to unpack/build.
+          # If you don’t need to build anything (as is the case here, where we are
+          # just wrapping our project), you need to tell Nix explicitly there's no source.
+          dontUnpack = true;
 
           installPhase = ''
             mkdir -p $out/bin
-            cat > $out/bin/l2 <<'EOF'
-            #!${pkgs.bash}/bin/bash
-            export PATH=${virtualenv}/bin:${pkgs.clang}/bin:${pkgs.llvmPackages.mlir}/bin:$PATH
-            export CFLAGS="-I${pkgs.gmp.dev}/include"
-            export LDFLAGS="-L${pkgs.gmp.out}/lib"
-            exec ${virtualenv}/bin/l2 "$@"
-            EOF
-            chmod +x $out/bin/l2
+            makeWrapper ${virtualenv}/bin/${projectAsNixPkg.pname} $out/bin/${projectAsNixPkg.pname} \
+              --set PATH "${virtualenv}/bin:${pkgs.clang}/bin:${pkgs.llvmPackages.mlir}/bin:$PATH" \
+              --set CFLAGS "-I${pkgs.gmp.dev}/include" \
+              --set LDFLAGS "-L${pkgs.gmp.out}/lib"
           '';
         };
+        packages.${projectAsNixPkg.pname} = self.packages.${system}.default;
+
+        # App for `nix run`
+        apps.default = {
+          type = "app";
+          program = "${self.packages.${system}.default}/bin/${projectAsNixPkg.pname}";
+        };
+        apps.${projectAsNixPkg.pname} = self.apps.${system}.default;
 
         # There are two different modes of development:
         # - Impurely using uv to manage virtual environments

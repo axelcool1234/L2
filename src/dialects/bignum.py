@@ -1,26 +1,19 @@
 # src/dialects/bignum.py
 
 import abc
-from typing import ClassVar
 
 from xdsl.dialects.builtin import (
-    DenseIntOrFPElementsAttr,
-    DenseResourceAttr,
-    FloatAttr,
-    IndexTypeConstr,
     IntegerAttr,
-    SignlessIntegerConstraint,
     i1,
 )
 from xdsl.ir import Dialect, Operation
 from xdsl.ir.core import ParametrizedAttribute, SSAValue, TypeAttribute
 from xdsl.irdl import irdl_op_definition
 from xdsl.irdl.attributes import irdl_attr_definition
-from xdsl.irdl.constraints import AnyAttr, ParamAttrConstraint, VarConstraint
 from xdsl.irdl.operations import (
     IRDLOperation,
+    attr_def,
     operand_def,
-    prop_def,
     result_def,
     traits_def,
 )
@@ -41,21 +34,14 @@ bignum = BigNumType()
 class ConstantOp(IRDLOperation):
     name = "bignum.constant"
 
-    # WARNING: Stole this from arith's `ConstantOp`, I don't know what it's doing
-    _T: ClassVar = VarConstraint("T", AnyAttr())
-    value = prop_def(
-        IntegerAttr.constr((SignlessIntegerConstraint | IndexTypeConstr) & _T)
-        | ParamAttrConstraint(FloatAttr, (AnyAttr(), _T))
-        | ParamAttrConstraint(DenseIntOrFPElementsAttr, (_T, AnyAttr()))
-        | ParamAttrConstraint(DenseResourceAttr, (AnyAttr(), _T))
-    )
-    result = result_def(BigNumType)
+    value = attr_def(IntegerAttr)
+    result = result_def(bignum)
 
     def __init__(self, value: IntegerAttr):
         super().__init__(
             operands=[],
             result_types=[bignum],
-            properties={"value": value},
+            attributes={"value": value},
         )
 
 

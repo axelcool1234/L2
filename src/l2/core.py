@@ -9,61 +9,57 @@ from lark.visitors import (
     visit_children_decor,
 )
 from xdsl.builder import Builder
-from xdsl.dialects.arith import AndIOp, ConstantOp, ExtUIOp, OrIOp, XOrIOp
-from xdsl.dialects.builtin import (
-    IntegerAttr,
-    ModuleOp,
-    i1,
-    i32,
-)
-from xdsl.dialects.func import FuncOp, ReturnOp
-from xdsl.dialects.llvm import (
-    CallingConventionAttr,
-    LinkageAttr,
-    LLVMFunctionType,
-    LLVMPointerType,
-    LLVMVoidType,
-)
-from xdsl.dialects.llvm import FuncOp as LLVMFuncOp
-from xdsl.dialects.printf import PrintFormatOp
-from xdsl.dialects.scf import ConditionOp, WhileOp, YieldOp
+from xdsl.dialects import arith, bigint, builtin, func, llvm, printf, scf
+from xdsl.dialects.builtin import IntegerAttr
 from xdsl.ir import Block, Region
 from xdsl.ir.core import Attribute, BlockArgument, OpResult, SSAValue
+from xdsl.irdl.operations import IRDLOperation, attr_def, irdl_op_definition, result_def
 from xdsl.rewriter import InsertPoint
 from xdsl.utils.scoped_dict import ScopedDict
 
-from dialects.bignum import (
-    AddOp,
-    BigNumType,
-    EqOp,
-    GteOp,
-    GtOp,
-    LteOp,
-    LtOp,
-    NeqOp,
-    PrintlnOp,
-    PrintOp,
-    ConstantOp as BigNumConstantOp,
-)
+from dialects import bignum
+
+
+@irdl_op_definition
+class BigIntConstantOp(IRDLOperation):
+    name = "bigint.constant"
+
+    value = attr_def(IntegerAttr)
+    result = result_def(bigint.bigint)
+
+    def __init__(self, value: IntegerAttr):
+        super().__init__(
+            operands=[],
+            result_types=[bigint.bigint],
+            attributes={"value": value},
+        )
+
 
 Op = Union[
-    # arith
-    AndIOp,
-    OrIOp,
-    XOrIOp,
-    ConstantOp,
-    # Bignum
-    AddOp,
-    EqOp,
-    NeqOp,
-    GtOp,
-    GteOp,
-    LtOp,
-    LteOp,
-    BigNumConstantOp,
+    arith.AndIOp,
+    arith.OrIOp,
+    arith.XOrIOp,
+    arith.ConstantOp,
+    bignum.AddOp,
+    bignum.EqOp,
+    bignum.NeqOp,
+    bignum.GtOp,
+    bignum.GteOp,
+    bignum.LtOp,
+    bignum.LteOp,
+    bignum.ConstantOp,
+    BigIntConstantOp,
+    bigint.AddOp,
+    bigint.EqOp,
+    bigint.NeqOp,
+    bigint.GtOp,
+    bigint.GteOp,
+    bigint.LtOp,
+    bigint.LteOp,
 ]
 Use = Union[Op, OpResult, BlockArgument]
 Node = List[Union[Token, Use]]
+Print = Union[printf.PrintFormatOp, bignum.PrintOp, bignum.PrintlnOp]
 
 precedence = r"""
 Precedence levels (lowest -> highest):
@@ -133,21 +129,15 @@ class IRGen(Interpreter):
     Implementation of a simple MLIR emission from the L2 AST.
     """
 
-    module: ModuleOp
-    """
-    A "module" matches an L2 source file: containing a list with only one function.
-    """
-
-    module_builder: Builder
-    func_builder: Builder
-    func: FuncOp
+    _builder: Builder
+    _func: func.FuncOp
     """
     The builder is a helper class to create IR inside a function. The builder
     is stateful, in particular it keeps an "insertion point": this is where
     the next operations will be introduced.
     """
 
-    symbol_table: ScopedDict[str, SSAValue] | None = None
+    _symbol_table: ScopedDict[str, SSAValue] | None = None
     """
     The symbol table maps a variable name to a value in the current scope.
     Entering a function creates a new scope, and the function arguments are
@@ -156,24 +146,20 @@ class IRGen(Interpreter):
     """
 
     def __init__(self, debug=False):
-        # Create empty module. Function containing all of the user's transformed L2 instructions will be placed in here at the end (in `program`).
-        self.module = ModuleOp([])
-        self.module_builder = Builder(InsertPoint.at_end(self.module.body.blocks[0]))
-
         # Create one singular function where every transformed L2 instruction will be inserted into.
         entry_block = Block()
         func_region = Region(entry_block)
-        self.func = FuncOp.from_region("main", [], [], func_region)
-        self.func_builder = Builder(InsertPoint.at_end(entry_block))
+        self._func = func.FuncOp.from_region("main", [], [], func_region)
+        self._builder = Builder(InsertPoint.at_end(entry_block))
 
         # Create an empty symbol table for variable name to SSA value mappings
-        self.symbol_table = ScopedDict()
+        self._symbol_table = ScopedDict()
 
         # Debug mode
-        self.debug = debug
+        self._debug = debug
 
     def _dbg(self, name: str, node):
-        if self.debug:
+        if self._debug:
             print(f"\n[DEBUG] Visiting {name}:")
             try:
                 print(f"  node = {node}")
@@ -210,16 +196,10 @@ class IRGen(Interpreter):
         self._dbg(f"{ast_name}", node)
         self._assert_binary(node)
 
-        return self.func_builder.insert(op_type(node[0], node[1]))
+        return self._builder.insert(op_type(node[0], node[1]))
 
-    def _cmp_op(self, op_type, node: List[Use], ast_name):
-        self._dbg(f"{ast_name}", node)
-        self._assert_binary(node)
-
-        return self.func_builder.insert(op_type(node[0], node[1]))
-
-    def _print_op(self, node: List[Use], fmt: str):
-        assert self.symbol_table is not None
+    def _print_op(self, node: List[Use], fmt: str) -> Print:
+        assert self._symbol_table is not None
         assert len(node) == 1
         assert isinstance(node[0], Use)
 
@@ -230,35 +210,55 @@ class IRGen(Interpreter):
             val = val.result
 
         # Handle boolean values
-        if val.type == i1:
-            val = self.func_builder.insert(ExtUIOp(val, i32))
-            return self.func_builder.insert(PrintFormatOp(fmt, val))
+        if val.type == builtin.i1:
+            val = self._builder.insert(arith.ExtUIOp(val, builtin.i32))
+            return self._builder.insert(printf.PrintFormatOp(fmt, val))
 
         # Handle bignums
-        elif isinstance(val.type, BigNumType):
+        elif isinstance(val.type, bignum.BigNumType):
             # Call the GMP print function
             if fmt == "{}":
-                return self.func_builder.insert(PrintOp(val))
+                return self._builder.insert(bignum.PrintOp(val))
             else:  # fmt == "{}\n"
-                return self.func_builder.insert(PrintlnOp(val))
+                return self._builder.insert(bignum.PrintlnOp(val))
 
         # Fallback: normal printing
         else:
-            return self.func_builder.insert(PrintFormatOp(fmt, val))
+            return self._builder.insert(printf.PrintFormatOp(fmt, val))
+
+    def _cmp_op(self, op_type, node: List[Use], ast_name):
+        self._dbg(f"{ast_name}", node)
+        self._assert_binary(node)
+
+        return self._builder.insert(op_type(node[0], node[1]))
 
     @visit_children_decor  # pyrefly: ignore
-    def program(self, node: Node) -> FuncOp:
-        self._dbg("program", node)
-        self.func_builder.insert(ReturnOp())
-        return self.module_builder.insert(self.func)
+    def assign_stmt(self, node: Node) -> Use:
+        """
+        node[0] = [Token('VAR', var_name)]
+        node[1] = Use
+        """
+        self._dbg("assign_stmt", node)
+        assert self._symbol_table is not None
+        assert len(node) == 2
+        assert isinstance(node[0], Token)
+        assert isinstance(node[1], Use)
 
-    def loop_stmt(self, node: Tree) -> WhileOp:
+        var_name = str(node[0])
+        if isinstance(node[1], (OpResult, BlockArgument)):
+            self._symbol_table[var_name] = node[1]
+        else:
+            assert isinstance(node[1], Op)
+            self._symbol_table[var_name] = node[1].result
+        return node[1]
+
+    def loop_stmt(self, node: Tree) -> scf.WhileOp:
         """
         node[0] = condition expression
         node[1:] = body statements
         """
         self._dbg("loop_stmt", node)
-        assert self.symbol_table is not None
+        assert self._symbol_table is not None
 
         loop_carried_vars = []
         for stmt in node.children[1:]:
@@ -268,11 +268,11 @@ class IRGen(Interpreter):
                 # Only worry about variables that existed before the loop
                 var = stmt.children[0].children[0]
                 assert isinstance(var, Token)
-                if var in self.symbol_table:
+                if var in self._symbol_table:
                     loop_carried_vars.append(var)
 
         # Initial SSAs
-        initial_ssas = [self.symbol_table[var] for var in loop_carried_vars]
+        initial_ssas = [self._symbol_table[var] for var in loop_carried_vars]
         ssa_types = [ssa_val.type for ssa_val in initial_ssas]
 
         # Create before block, before block args, and before region
@@ -292,7 +292,7 @@ class IRGen(Interpreter):
         after_region = Region(after_block)
 
         # Build the WhileOp node
-        loop_op = WhileOp(
+        loop_op = scf.WhileOp(
             arguments=initial_ssas,
             result_types=ssa_types,
             before_region=before_region,
@@ -300,151 +300,75 @@ class IRGen(Interpreter):
         )
 
         # Save current builder/scope
-        old_builder = self.func_builder
-        old_symbols = self.symbol_table
+        old_builder = self._builder
+        old_symbols = self._symbol_table
 
         # --- BEFORE REGION ---
-        self.func_builder = Builder(InsertPoint.at_end(before_block))
-        self.symbol_table = ScopedDict(old_symbols)
+        self._builder = Builder(InsertPoint.at_end(before_block))
+        self._symbol_table = ScopedDict(old_symbols)
 
         # Map loop-carried variable names to the before block args
         for name, ssa in zip(loop_carried_vars, before_args):
-            self.symbol_table[name] = ssa
+            self._symbol_table[name] = ssa
 
         # Evaluate the condition inside the 'before' region (scf.while runs this first)
         # NOTE: We do not use do-while loops, so nothing needs to be done in the before region beyond the condition.
         cond_value_inner = self.visit(node.children[0])
         assert isinstance(cond_value_inner, Use)
-        self.func_builder.insert(ConditionOp(cond_value_inner, *before_args))
+        self._builder.insert(scf.ConditionOp(cond_value_inner, *before_args))
 
         # --- AFTER REGION ---
-        self.func_builder = Builder(InsertPoint.at_end(after_block))
-        self.symbol_table = ScopedDict(old_symbols)
+        self._builder = Builder(InsertPoint.at_end(after_block))
+        self._symbol_table = ScopedDict(old_symbols)
 
         # Map loop-carried variable names to the after block args
         for name, ssa in zip(loop_carried_vars, after_args):
-            self.symbol_table[name] = ssa
+            self._symbol_table[name] = ssa
 
         # Visit body statements
         for stmt in node.children[1:]:
             self.visit(stmt)
 
         # Terminate the loop body region with scf.yield
-        self.func_builder.insert(
-            YieldOp(*[self.symbol_table[var] for var in loop_carried_vars])
+        self._builder.insert(
+            scf.YieldOp(*[self._symbol_table[var] for var in loop_carried_vars])
         )
 
         # Restore builder/scope
-        self.func_builder = old_builder
-        self.symbol_table = old_symbols
+        self._builder = old_builder
+        self._symbol_table = old_symbols
 
         # Map loop-carried variable names to the final SSA values
         for name, ssa in zip(loop_carried_vars, loop_op.res):
-            self.symbol_table[name] = ssa
+            self._symbol_table[name] = ssa
 
         # Insert loop op in parent region
-        return self.func_builder.insert(loop_op)
+        return self._builder.insert(loop_op)
 
     @visit_children_decor  # pyrefly: ignore
-    def assign_stmt(self, node: Node) -> Use:
-        """
-        node[0] = [Token('VAR', var_name)]
-        node[1] = Use
-        """
-        self._dbg("assign_stmt", node)
-        assert self.symbol_table is not None
-        assert len(node) == 2
-        assert isinstance(node[0], Token)
-        assert isinstance(node[1], Use)
-
-        var_name = str(node[0])
-        if isinstance(node[1], (OpResult, BlockArgument)):
-            self.symbol_table[var_name] = node[1]
-        else:
-            assert isinstance(node[1], Op)
-            self.symbol_table[var_name] = node[1].result
-        return node[1]
-
-    @visit_children_decor  # pyrefly: ignore
-    def print_stmt(self, node: List[Use]) -> PrintFormatOp | PrintOp | PrintlnOp:
+    def print_stmt(self, node: List[Use]) -> Print:
         self._dbg("print_stmt", node)
         return self._print_op(node, "{}")
 
     @visit_children_decor  # pyrefly: ignore
-    def println_stmt(self, node: List[Use]) -> PrintFormatOp | PrintOp | PrintlnOp:
+    def println_stmt(self, node: List[Use]) -> Print:
         self._dbg("println_stmt", node)
         return self._print_op(node, "{}\n")
 
     @visit_children_decor  # pyrefly: ignore
-    def negate_expr(self, node: List[Use]) -> XOrIOp:
-        true_const = self.func_builder.insert(ConstantOp(IntegerAttr(1, i1)))
-        return self._binary_op(XOrIOp, [node[0], true_const], "negate_expr")
+    def and_expr(self, node: List[Use]) -> arith.AndIOp:
+        return self._binary_op(arith.AndIOp, node, "and_expr")
 
     @visit_children_decor  # pyrefly: ignore
-    def and_expr(self, node: List[Use]) -> AndIOp:
-        return self._binary_op(AndIOp, node, "and_expr")
+    def or_expr(self, node: List[Use]) -> arith.OrIOp:
+        return self._binary_op(arith.OrIOp, node, "or_expr")
 
     @visit_children_decor  # pyrefly: ignore
-    def or_expr(self, node: List[Use]) -> OrIOp:
-        return self._binary_op(OrIOp, node, "or_expr")
-
-    @visit_children_decor  # pyrefly: ignore
-    def add_expr(self, node: List[Use]) -> AddOp:
-        return self._binary_op(AddOp, node, "add_expr")
-
-    @visit_children_decor  # pyrefly: ignore
-    def ult_expr(self, node: List[Use]):
-        return self._cmp_op(LtOp, node, "lt_expr")
-
-    @visit_children_decor  # pyrefly: ignore
-    def ugt_expr(self, node: List[Use]):
-        return self._cmp_op(GtOp, node, "gt_expr")
-
-    @visit_children_decor  # pyrefly: ignore
-    def uge_expr(self, node: List[Use]):
-        return self._cmp_op(GteOp, node, "ge_expr")
-
-    @visit_children_decor  # pyrefly: ignore
-    def ule_expr(self, node: List[Use]):
-        return self._cmp_op(LteOp, node, "le_expr")
-
-    @visit_children_decor  # pyrefly: ignore
-    def eq_expr(self, node: List[Use]):
-        return self._cmp_op(EqOp, node, "eq_expr")
-
-    @visit_children_decor  # pyrefly: ignore
-    def ne_expr(self, node: List[Use]):
-        return self._cmp_op(NeqOp, node, "ne_expr")
-
-    @visit_children_decor  # pyrefly: ignore
-    def paren_expr(self, node: List[Use]) -> Use:
-        self._dbg("paren_expr", node)
-        assert len(node) == 1
-        return node[0]
-
-    @visit_children_decor  # pyrefly: ignore
-    def int_expr(self, node: List[Token]):
-        """
-        node[0] = Token('INT', '[0-9]+')
-        """
-        self._dbg("int_expr", node)
-        self._assert_token(node)
-
-        value = int(node[0])
-        return self.func_builder.insert(BigNumConstantOp((IntegerAttr(value, i32))))
-
-    @visit_children_decor  # pyrefly: ignore
-    def bool_expr(self, node: List[Token]) -> ConstantOp:
-        """
-        node[0] = [Token('BOOL', '%T' | '%F')]
-        """
-        self._dbg("bool_expr", node)
-        self._assert_token(node)
-
-        if node[0] == "%T":
-            return self.func_builder.insert(ConstantOp(IntegerAttr(1, i1)))
-        else:  # node[1] == "%F":
-            return self.func_builder.insert(ConstantOp(IntegerAttr(0, i1)))
+    def negate_expr(self, node: List[Use]) -> arith.XOrIOp:
+        true_const = self._builder.insert(
+            arith.ConstantOp(builtin.IntegerAttr(1, builtin.i1))
+        )
+        return self._binary_op(arith.XOrIOp, [node[0], true_const], "negate_expr")
 
     @visit_children_decor  # pyrefly: ignore
     def rvar(self, node: List[Token]) -> SSAValue[Attribute]:
@@ -453,11 +377,11 @@ class IRGen(Interpreter):
         """
         self._dbg("rvar", node)
         self._assert_token(node)
-        assert self.symbol_table is not None
+        assert self._symbol_table is not None
 
         var_name = str(node[0])
         try:
-            return self.symbol_table[var_name]
+            return self._symbol_table[var_name]
         except Exception as e:
             raise Exception(f"error: Unknown variable `{var_name}`") from e
 
@@ -472,31 +396,158 @@ class IRGen(Interpreter):
 
         return node[0]  # unwrap
 
+    @visit_children_decor  # pyrefly: ignore
+    def bool_expr(self, node: List[Token]) -> arith.ConstantOp:
+        """
+        node[0] = [Token('BOOL', '%T' | '%F')]
+        """
+        self._dbg("bool_expr", node)
+        self._assert_token(node)
 
-def insert_bignum_decls(module: ModuleOp):
-    builder = Builder(InsertPoint.at_start(module.body.blocks[0]))
-
-    # Helper to insert a function
-    def insert_func(name: str, inputs: list, output):
-        builder.insert(
-            LLVMFuncOp(
-                sym_name=name,
-                function_type=LLVMFunctionType(inputs=inputs, output=output),
-                linkage=LinkageAttr("external"),
-                cconv=CallingConventionAttr("ccc"),
-                visibility=0,
+        if node[0] == "%T":
+            return self._builder.insert(
+                arith.ConstantOp(builtin.IntegerAttr(1, builtin.i1))
             )
+        else:  # node[1] == "%F":
+            return self._builder.insert(
+                arith.ConstantOp(builtin.IntegerAttr(0, builtin.i1))
+            )
+
+    @visit_children_decor  # pyrefly: ignore
+    def paren_expr(self, node: List[Use]) -> Use:
+        self._dbg("paren_expr", node)
+        assert len(node) == 1
+        return node[0]
+
+
+class IRGenInterpreter(IRGen):
+    @visit_children_decor  # pyrefly: ignore
+    def program(self, node: Node):
+        self._dbg("program", node)
+        self._builder.insert(func.ReturnOp())
+        module = builtin.ModuleOp([])
+        builder = Builder(InsertPoint.at_end(module.body.blocks[0]))
+        builder.insert(self._func)
+        return module
+
+    @visit_children_decor  # pyrefly: ignore
+    def add_expr(self, node: List[Use]) -> bigint.AddOp:
+        return self._binary_op(bigint.AddOp, node, "add_expr")
+
+    @visit_children_decor  # pyrefly: ignore
+    def ult_expr(self, node: List[Use]):
+        return self._cmp_op(bigint.LtOp, node, "lt_expr")
+
+    @visit_children_decor  # pyrefly: ignore
+    def ugt_expr(self, node: List[Use]):
+        return self._cmp_op(bigint.GtOp, node, "gt_expr")
+
+    @visit_children_decor  # pyrefly: ignore
+    def uge_expr(self, node: List[Use]):
+        return self._cmp_op(bigint.GteOp, node, "ge_expr")
+
+    @visit_children_decor  # pyrefly: ignore
+    def ule_expr(self, node: List[Use]):
+        return self._cmp_op(bigint.LteOp, node, "le_expr")
+
+    @visit_children_decor  # pyrefly: ignore
+    def eq_expr(self, node: List[Use]):
+        return self._cmp_op(bigint.EqOp, node, "eq_expr")
+
+    @visit_children_decor  # pyrefly: ignore
+    def ne_expr(self, node: List[Use]):
+        return self._cmp_op(bigint.NeqOp, node, "ne_expr")
+
+    @visit_children_decor  # pyrefly: ignore
+    def int_expr(self, node: List[Token]):
+        """
+        node[0] = Token('INT', '[0-9]+')
+        """
+        self._dbg("int_expr", node)
+        self._assert_token(node)
+
+        value = int(node[0])
+        return self._builder.insert(BigIntConstantOp(IntegerAttr(value, builtin.i32)))
+
+    # arith.ConstantOp.from_val()
+
+
+class IRGenCompiler(IRGen):
+    def _insert_bignum_decls(self, module: builtin.ModuleOp):
+        builder = Builder(InsertPoint.at_start(module.body.blocks[0]))
+
+        # Helper to insert a function
+        def insert_func(name: str, inputs: list, output):
+            builder.insert(
+                llvm.FuncOp(
+                    sym_name=name,
+                    function_type=llvm.LLVMFunctionType(inputs=inputs, output=output),
+                    linkage=llvm.LinkageAttr("external"),
+                    cconv=llvm.CallingConventionAttr("ccc"),
+                    visibility=0,
+                )
+            )
+
+        # Standard functions
+        ptr = llvm.LLVMPointerType.opaque()
+        insert_func("l2_bignum_from_i32", [builtin.i32], ptr)
+        insert_func("l2_bignum_add", [ptr, ptr], ptr)
+        insert_func("l2_bignum_print", [ptr], llvm.LLVMVoidType())
+        insert_func("l2_bignum_println", [ptr], llvm.LLVMVoidType())
+        insert_func("l2_bignum_free", [ptr], llvm.LLVMVoidType())
+
+        # Comparison functions returning i1
+        comparisons = ["lt", "lte", "gt", "gte", "eq", "neq"]
+        for cmp in comparisons:
+            insert_func(f"l2_bignum_{cmp}", [ptr, ptr], builtin.i1)
+
+    @visit_children_decor  # pyrefly: ignore
+    def program(self, node: Node):
+        self._dbg("program", node)
+        self._builder.insert(func.ReturnOp())
+        module = builtin.ModuleOp([])
+        builder = Builder(InsertPoint.at_end(module.body.blocks[0]))
+        builder.insert(self._func)
+        self._insert_bignum_decls(module)
+        return module
+
+    @visit_children_decor  # pyrefly: ignore
+    def add_expr(self, node: List[Use]) -> bignum.AddOp:
+        return self._binary_op(bignum.AddOp, node, "add_expr")
+
+    @visit_children_decor  # pyrefly: ignore
+    def ult_expr(self, node: List[Use]):
+        return self._cmp_op(bignum.LtOp, node, "lt_expr")
+
+    @visit_children_decor  # pyrefly: ignore
+    def ugt_expr(self, node: List[Use]):
+        return self._cmp_op(bignum.GtOp, node, "gt_expr")
+
+    @visit_children_decor  # pyrefly: ignore
+    def uge_expr(self, node: List[Use]):
+        return self._cmp_op(bignum.GteOp, node, "ge_expr")
+
+    @visit_children_decor  # pyrefly: ignore
+    def ule_expr(self, node: List[Use]):
+        return self._cmp_op(bignum.LteOp, node, "le_expr")
+
+    @visit_children_decor  # pyrefly: ignore
+    def eq_expr(self, node: List[Use]):
+        return self._cmp_op(bignum.EqOp, node, "eq_expr")
+
+    @visit_children_decor  # pyrefly: ignore
+    def ne_expr(self, node: List[Use]):
+        return self._cmp_op(bignum.NeqOp, node, "ne_expr")
+
+    @visit_children_decor  # pyrefly: ignore
+    def int_expr(self, node: List[Token]):
+        """
+        node[0] = Token('INT', '[0-9]+')
+        """
+        self._dbg("int_expr", node)
+        self._assert_token(node)
+
+        value = int(node[0])
+        return self._builder.insert(
+            bignum.ConstantOp(builtin.IntegerAttr(value, builtin.i32))
         )
-
-    # Standard functions
-    ptr = LLVMPointerType.opaque()
-    insert_func("l2_bignum_from_i32", [i32], ptr)
-    insert_func("l2_bignum_add", [ptr, ptr], ptr)
-    insert_func("l2_bignum_print", [ptr], LLVMVoidType())
-    insert_func("l2_bignum_println", [ptr], LLVMVoidType())
-    insert_func("l2_bignum_free", [ptr], LLVMVoidType())
-
-    # Comparison functions returning i1
-    comparisons = ["lt", "lte", "gt", "gte", "eq", "neq"]
-    for cmp in comparisons:
-        insert_func(f"l2_bignum_{cmp}", [ptr, ptr], i1)

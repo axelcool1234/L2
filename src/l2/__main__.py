@@ -16,7 +16,7 @@ from xdsl.dialects import arith, func, printf, scf
 from xdsl.dialects.builtin import Builtin, ModuleOp
 
 from dialects import LowerBigNumToLLVM
-from l2 import IRGen, grammar, insert_bignum_decls, precedence
+from l2 import IRGenCompiler, grammar, precedence, IRGenInterpreter
 
 
 def context() -> Context:
@@ -76,10 +76,8 @@ def compile_loop_lang(
     tree = parser.parse(l2_code)
 
     # AST -> MLIR
-    generator = IRGen(debug)
-    generator.visit(tree)
-    module = generator.module
-    insert_bignum_decls(module)
+    generator = IRGenCompiler(debug)
+    module = generator.visit(tree)
     try:
         module.verify()
     except Exception:
@@ -182,6 +180,46 @@ def compile_loop_lang(
             output_path.unlink()
 
 
+def interpret_loop_lang(
+    input: Path,
+    output: Path | None,
+    emit: str | None = None,
+    run: bool = False,
+    debug: bool = False,
+) -> None:
+    def emit_check(step: str, code: ModuleOp | bytes) -> bool:
+        if emit == step:
+            if isinstance(code, bytes):
+                text = code.decode()
+            else:  # isinstance(code, ModuleOp)
+                text = str(code)
+            if output is None:
+                print(text)
+            else:
+                output.write_text(text)
+            return True
+        return False
+
+    l2_code = input.read_text()
+
+    # Source -> AST
+    parser = Lark(grammar, start="program", parser="lalr")
+    tree = parser.parse(l2_code)
+
+    # AST -> MLIR
+    generator = IRGenInterpreter(debug)
+    module = generator.visit(tree)
+    try:
+        module.verify()
+    except Exception:
+        print("module verification error")
+        raise
+
+    # Emit MLIR and exit if specified
+    if emit_check("mlir", module):
+        return
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="LoopLang (L2) Compiler")
     parser.add_argument("input_file", type=Path, nargs="?", help="LoopLang source file")
@@ -217,6 +255,10 @@ def main() -> None:
         help="Display grammar and precedence rules for L2",
     )
     args = parser.parse_args()
+
+    # return interpret_loop_lang(
+    #     args.input_file, args.output, "mlir", args.run, args.debug
+    # )
 
     if args.grammar:
         print(f"--- L2 Precedence Rules ---\n{precedence}")

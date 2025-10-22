@@ -4,6 +4,7 @@
 LoopLang CLI entrypoint.
 """
 
+import importlib.metadata
 import argparse
 import os
 import subprocess
@@ -266,7 +267,7 @@ def interpret_loop_lang(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="LoopLang (L2) Compiler")
+    parser = argparse.ArgumentParser(description="LoopLang (L2) Compiler and Interpreter")
     parser.add_argument("input_file", type=Path, nargs="?", help="LoopLang source file")
     parser.add_argument(
         "-c",
@@ -306,7 +307,19 @@ def main() -> None:
         action="store_true",
         help="Display grammar and precedence rules for L2",
     )
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="store_true",
+        help="Display version of L2",
+    )
+
     args = parser.parse_args()
+
+    if args.version:
+        version = importlib.metadata.version("l2")
+        print(f"L2 version {version}")
+        return
 
     if args.grammar:
         print(f"--- L2 Precedence Rules ---\n{precedence}")

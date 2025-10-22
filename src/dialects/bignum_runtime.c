@@ -1,4 +1,4 @@
-// runtime.c
+// src/dialects/bignum_runtime.c
 #include <stdlib.h>
 #include <gmp.h>
 

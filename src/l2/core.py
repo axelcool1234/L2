@@ -113,6 +113,9 @@ BOOL: "%T" | "%F"
 lvar: VAR
 rvar: VAR
 
+COMMENT: ";" /[^\n]/*
+%ignore COMMENT
+
 %import common.INT
 %import common.CNAME -> VAR
 %import common.WS

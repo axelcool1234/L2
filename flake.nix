@@ -130,7 +130,6 @@
         virtualenv = pythonSet.mkVirtualEnv (projectAsNixPkg.pname + "-env") workspace.deps.default; # Uses deps from pyproject.toml [project.dependencies]
       in
       {
-        debug.workspace = workspace;
         # Nix Package for The Application
         packages.default = pkgs.stdenv.mkDerivation {
           pname = projectAsNixPkg.pname;
@@ -144,22 +143,33 @@
             pkgs.gmp
           ];
 
-          # src = ...
-          # This isn't a source tarball, so don't unpack
-          # (additionally, this means we don't need a src
-          # attribute, as commented out above)
-          #
-          # mkDerivation normally expects some source files in $src to unpack/build.
-          # If you don’t need to build anything (as is the case here, where we are
-          # just wrapping our project), you need to tell Nix explicitly there's no source.
-          dontUnpack = true;
+          src = ./.;
 
-          installPhase = ''
+          dontUnpack = true;
+          doCheck = true;
+
+          buildPhase = ''
             mkdir -p $out/bin
+            mkdir -p $out/lib
+            mkdir -p $out/tests
+
+            cp -r $src/tests/l2 $out/tests/
+            clang -c $src/src/dialects/bignum_runtime.c -o $out/lib/bignum_runtime.o -I${pkgs.gmp.dev}/include
+
             makeWrapper ${virtualenv}/bin/${projectAsNixPkg.pname} $out/bin/${projectAsNixPkg.pname} \
               --set PATH "${virtualenv}/bin:${pkgs.clang}/bin:${pkgs.llvmPackages.mlir}/bin:$PATH" \
-              --set CFLAGS "-I${pkgs.gmp.dev}/include" \
-              --set LDFLAGS "-L${pkgs.gmp.out}/lib"
+              --set LDFLAGS "-L${pkgs.gmp.out}/lib" \
+              --set BIGNUM_RUNTIME_PATH "$out/lib/bignum_runtime.o"
+
+            makeWrapper ${virtualenv}/bin/lit $out/bin/${projectAsNixPkg.pname}-lit-test \
+              --set PATH "$out/bin:$PATH" \
+              --set LDFLAGS "-L${pkgs.gmp.out}/lib" \
+              --set BIGNUM_RUNTIME_PATH "$out/lib/bignum_runtime.o" \
+              --add-flags "-v $out/tests/l2"
+          '';
+
+          checkPhase = ''
+            $out/bin/${projectAsNixPkg.pname}-lit-test
           '';
         };
         packages.${projectAsNixPkg.pname} = self.packages.${system}.default;

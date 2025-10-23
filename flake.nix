@@ -130,7 +130,7 @@
         virtualenv = pythonSet.mkVirtualEnv (projectAsNixPkg.pname + "-env") workspace.deps.default; # Uses deps from pyproject.toml [project.dependencies]
       in
       {
-        # Nix Package for The Application
+        # Nix Package for the application
         packages.default = pkgs.stdenv.mkDerivation {
           pname = projectAsNixPkg.pname;
           version = projectAsNixPkg.version;
@@ -146,7 +146,6 @@
           src = ./.;
 
           dontUnpack = true;
-          doCheck = true;
 
           buildPhase = ''
             mkdir -p $out/bin
@@ -160,19 +159,58 @@
               --set PATH "${virtualenv}/bin:${pkgs.clang}/bin:${pkgs.llvmPackages.mlir}/bin:$PATH" \
               --set LDFLAGS "-L${pkgs.gmp.out}/lib" \
               --set BIGNUM_RUNTIME_PATH "$out/lib/bignum_runtime.o"
-
-            makeWrapper ${virtualenv}/bin/lit $out/bin/${projectAsNixPkg.pname}-lit-test \
-              --set PATH "$out/bin:$PATH" \
-              --set LDFLAGS "-L${pkgs.gmp.out}/lib" \
-              --set BIGNUM_RUNTIME_PATH "$out/lib/bignum_runtime.o" \
-              --add-flags "-v $out/tests/l2"
-          '';
-
-          checkPhase = ''
-            $out/bin/${projectAsNixPkg.pname}-lit-test
           '';
         };
         packages.${projectAsNixPkg.pname} = self.packages.${system}.default;
+
+        # Nix Package for testing the application
+        packages.test =
+          # let
+          # Construct a virtual environment with only the test dependency-group enabled for testing.
+          # testVirtualenv = pythonSet.mkVirtualEnv (projectAsNixPkg.pname + "-test-env") {
+          #   l2 = [ "test" ];
+          # };
+          # in
+          pkgs.stdenv.mkDerivation {
+            pname = "${projectAsNixPkg.pname}-test";
+            version = projectAsNixPkg.version;
+
+            nativeBuildInputs = [
+              pkgs.makeWrapper
+            ];
+            buildInputs = [
+              self.packages.${system}.default
+              pkgs.clang
+              pkgs.llvmPackages.mlir
+
+              # With these dependencies, testVirtualenv does not need to be used and sourced
+              pkgs.lit
+              pkgs.filecheck
+            ];
+
+            dontUnpack = true;
+            # Because this package is running tests, and not actually building the main package
+            # the build phase is running the tests.
+            #
+            # In this particular example we also output a HTML coverage report, which is used as the build output.
+            # NOTE: The following commented out buildPhase uses testVirtualenv, which I have disabled.
+            # buildPhase = ''
+            #   source ${testVirtualenv}/bin/activate
+            #   export PATH="${self.packages.${system}.default}"/bin:$PATH
+            #   ${testVirtualenv}/bin/lit -v \
+            #     ${self.packages.${system}.default}/tests/l2
+            # '';
+            buildPhase = ''
+              makeWrapper ${pkgs.lit}/bin/lit $out/bin/${projectAsNixPkg.pname}-test \
+                --add-flags "-v ${self.packages.${system}.default}/tests/l2"
+              lit -v ${self.packages.${system}.default}/tests/l2
+            '';
+
+            installPhase = ''
+              mkdir -p $out
+              echo 'Tests passed!' > $out/result
+            '';
+          };
 
         # App for `nix run`
         apps.default = {
@@ -180,6 +218,18 @@
           program = "${self.packages.${system}.default}/bin/${projectAsNixPkg.pname}";
         };
         apps.${projectAsNixPkg.pname} = self.apps.${system}.default;
+
+        apps.test = {
+          type = "app";
+          program = "${pkgs.writeShellScriptBin "run-tests" ''
+            cat ${self.packages.${system}.test}/result
+          ''}/bin/run-tests"; # This just echoes that it succeeded. It won't even get this far if the tests fail in the buildPhase.
+        };
+
+        # `nix flake check`
+        checks = {
+          test = self.packages.${system}.test;
+        };
 
         # There are two different modes of development:
         # - Impurely using uv to manage virtual environments

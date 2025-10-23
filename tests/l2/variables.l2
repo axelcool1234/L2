@@ -1,0 +1,16 @@
+; RUN: %l2 %s | filecheck --check-prefix=CHECK-INTERPRET %s
+; RUN: %l2 %s -c -r | filecheck --check-prefix=CHECK-COMPILE %s
+
+x = 10
+y = x + 5
+z = y + x
+%println z
+
+x = z + 1
+%print x
+
+; CHECK-INTERPRET: 25
+; CHECK-INTERPRET-NEXT: 26
+
+; CHECK-COMPILE: 25
+; CHECK-COMPILE-NEXT: 26

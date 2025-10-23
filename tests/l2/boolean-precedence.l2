@@ -1,0 +1,10 @@
+; RUN: %l2 %s 2>&1 | filecheck --check-prefix=CHECK-INTERPRET %s
+; RUN: %l2 %s -c -r 2>&1 | filecheck --check-prefix=CHECK-COMPILE %s
+
+x = %T
+y = %F
+z = !x || y && %T
+%print z
+
+; CHECK-INTERPRET: 0
+; CHECK-COMPILE: 0

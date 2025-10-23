@@ -29,4 +29,7 @@ If you decide to use `uv` or some other Python package manager, you'll need to m
 - mlir-opt
 - GNU's GMP library
 
-Make sure to install these with your system package manager.
+Make sure to install these with your system package manager. Then, you'll need to call:
+`clang -c src/dialects/bignum_runtime.c -o bignum_runtime.o`
+
+`export BIGNUM_RUNTIME_PATH=bignum_runtime.o` 

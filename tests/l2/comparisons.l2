@@ -1,0 +1,19 @@
+; RUN: %l2 %s | filecheck --check-prefix=CHECK-INTERPRET %s
+; RUN: %l2 %s -c -r | filecheck --check-prefix=CHECK-COMPILE %s
+
+a = 5
+b = 10
+%println a < b
+%println a == b
+%println a != b
+%print (a + 5) >= b
+
+; CHECK-INTERPRET: 1
+; CHECK-INTERPRET-NEXT: 0
+; CHECK-INTERPRET-NEXT: 1
+; CHECK-INTERPRET-NEXT: 1
+
+; CHECK-COMPILE: 1
+; CHECK-COMPILE-NEXT: 0
+; CHECK-COMPILE-NEXT: 1
+; CHECK-COMPILE-NEXT: 1

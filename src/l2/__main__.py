@@ -179,22 +179,6 @@ def compile_loop_lang(
         tmp_ir.write(llvm_bytes)
         tmp_ir_path = Path(tmp_ir.name)
 
-    # Compile runtime.c to object file
-    runtime_obj = tmp_ir_path.with_suffix(".o")
-
-    cflags = os.getenv("CFLAGS", "").split()
-    ldflags = os.getenv("LDFLAGS", "").split()
-    run_cmd(
-        [
-            "clang",
-            "-c",
-            "src/dialects/bignum_runtime.c",
-            "-o",
-            str(runtime_obj),
-            *cflags,
-        ]
-    )
-
     # Link LLVM IR + runtime object into final executable
     if output is None:
         if run:
@@ -204,11 +188,13 @@ def compile_loop_lang(
     else:
         output_path = output
 
+    ldflags = os.getenv("LDFLAGS", "").split()
+    runtime_path = os.getenv("BIGNUM_RUNTIME_PATH", "")
     run_cmd(
         [
             "clang",
             str(tmp_ir_path),
-            str(runtime_obj),
+            str(runtime_path),
             "-lgmp",
             "-o",
             str(output_path),
@@ -218,7 +204,6 @@ def compile_loop_lang(
 
     # Cleanup temp files
     tmp_ir_path.unlink()
-    runtime_obj.unlink()
 
     # Optionally run the binary
     if run:
@@ -267,7 +252,9 @@ def interpret_loop_lang(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="LoopLang (L2) Compiler and Interpreter")
+    parser = argparse.ArgumentParser(
+        description="LoopLang (L2) Compiler and Interpreter"
+    )
     parser.add_argument("input_file", type=Path, nargs="?", help="LoopLang source file")
     parser.add_argument(
         "-c",

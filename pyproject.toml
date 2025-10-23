@@ -36,5 +36,6 @@ dev = [
     "ruff>=0.14.1",
 ]
 test = [
-    "pytest>=8.4.2",
+    "filecheck>=1.0.3",
+    "lit>=18.1.8",
 ]

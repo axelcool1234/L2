@@ -164,39 +164,12 @@
         };
         packages.${projectAsNixPkg.pname} = self.packages.${system}.default;
 
-        # Package for testing the application
-        packages.test =
-          let
-            testVirtualenv = pythonSet.mkVirtualEnv (projectAsNixPkg.pname + "-test-env") {
-              l2 = [ "test" ];
-            };
-          in
-          pkgs.stdenv.mkDerivation {
-            pname = "${projectAsNixPkg.pname}-test";
-            version = projectAsNixPkg.version;
-            buildInputs = [
-              self.packages.${system}.default
-              testVirtualenv
-            ];
-
-            dontUnpack = true;
-
-            installPhase = ''
-              export PATH=${self.packages.${system}.default}:$PATH
-              pytest -v tests
-            '';
-          };
-
         # App for `nix run`
         apps.default = {
           type = "app";
           program = "${self.packages.${system}.default}/bin/${projectAsNixPkg.pname}";
         };
         apps.${projectAsNixPkg.pname} = self.apps.${system}.default;
-        apps.test = {
-          type = "app";
-          program = "${self.packages.${system}.test}/bin/${projectAsNixPkg.pname}-test";
-        };
 
         # There are two different modes of development:
         # - Impurely using uv to manage virtual environments

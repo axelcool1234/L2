@@ -1,0 +1,41 @@
+; RUN: %l2 %s | filecheck --check-prefix=CHECK-INTERPRET %s
+; RUN: %l2 %s -c -r | filecheck --check-prefix=CHECK-COMPILE %s
+
+n = 10
+curr = 0
+prev1 = 1
+prev2 = 0
+i = 2
+%println prev2
+%println prev1
+%while i < n {
+	curr = prev1 + prev2
+	%println curr
+
+	prev2 = prev1
+	prev1 = curr
+	i = i + 1
+}
+
+; CHECK-INTERPRET: 0
+; CHECK-INTERPRET-NEXT: 1
+; CHECK-INTERPRET-NEXT: 1
+; CHECK-INTERPRET-NEXT: 2
+; CHECK-INTERPRET-NEXT: 3
+; CHECK-INTERPRET-NEXT: 5
+; CHECK-INTERPRET-NEXT: 8
+; CHECK-INTERPRET-NEXT: 13
+; CHECK-INTERPRET-NEXT: 21
+; CHECK-INTERPRET-NEXT: 34
+
+; CHECK-COMPILE: 0
+; CHECK-COMPILE-NEXT: 1
+; CHECK-COMPILE-NEXT: 1
+; CHECK-COMPILE-NEXT: 2
+; CHECK-COMPILE-NEXT: 3
+; CHECK-COMPILE-NEXT: 5
+; CHECK-COMPILE-NEXT: 8
+; CHECK-COMPILE-NEXT: 13
+; CHECK-COMPILE-NEXT: 21
+; CHECK-COMPILE-NEXT: 34
+

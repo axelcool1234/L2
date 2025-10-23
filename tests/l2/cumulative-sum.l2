@@ -1,0 +1,15 @@
+; RUN: %l2 %s | filecheck --check-prefix=CHECK-INTERPRET %s
+; RUN: %l2 %s -c -r | filecheck --check-prefix=CHECK-COMPILE %s
+
+sum = 0
+i = 1
+%while i <= 5 {
+    sum = sum + i
+    i = i + 1
+}
+%println sum
+
+; CHECK-INTERPRET: 15
+
+; CHECK-COMPILE: 15
+

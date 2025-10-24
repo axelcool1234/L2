@@ -248,26 +248,31 @@
         };
 
         # Pyrefly project integrity check
-        packages.pyrefly-check = pkgs.stdenv.mkDerivation {
-          pname = "${projectAsNixPkg.pname}-pyrefly-check";
-          version = projectAsNixPkg.version;
-          src = ./.;
+        packages.pyrefly-check =
+          let
+            devVirtualenv = pythonSet.mkVirtualEnv (projectAsNixPkg.pname + "-test-env") {
+              l2 = [ "dev" ];
+            };
+          in
+          pkgs.stdenv.mkDerivation {
+            pname = "${projectAsNixPkg.pname}-pyrefly-check";
+            version = projectAsNixPkg.version;
+            src = ./.;
 
-          buildInputs = [
-            pkgs.pyrefly
-          ];
+            buildInputs = [
+              devVirtualenv
+            ];
 
-          dontUnpack = true;
-          buildPhase = ''
-            cd $src
-            pyrefly check
-          '';
+            dontUnpack = true;
+            buildPhase = ''
+              pyrefly check $src
+            '';
 
-          installPhase = ''
-            mkdir -p $out
-            echo "Pyrefly check passed!" > $out/result
-          '';
-        };
+            installPhase = ''
+              mkdir -p $out
+              echo "Pyrefly check passed!" > $out/result
+            '';
+          };
 
         # App for `nix run`
         apps.default = {

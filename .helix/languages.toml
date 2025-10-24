@@ -1,3 +1,8 @@
+[language-server.ruff-lsp]
+command = "ruff-lsp"
+args = []
+config = {}
+
 [language-server.pyrefly]
 command = "pyrefly"
 args = ["lsp"]
@@ -5,4 +10,5 @@ args = ["lsp"]
 [[language]]
 name = "python"
 auto-format = true
+formatter = { command = "bash", args = ["-c", "ruff check --fix - | ruff format -"] }
 language-servers = [ "pyrefly", "ruff" ]

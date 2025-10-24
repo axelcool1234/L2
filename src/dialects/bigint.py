@@ -1,7 +1,7 @@
+# ruff: noqa: F405
 from typing import cast
 
-from xdsl.dialects import bigint
-from xdsl.dialects.bigint import *
+from xdsl.dialects.bigint import *  # noqa: F403
 from xdsl.dialects.builtin import IntegerAttr
 from xdsl.interpreter import (
     Interpreter,

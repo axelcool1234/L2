@@ -476,8 +476,6 @@ class IRGenInterpreter(IRGen):
         value = int(node[0])
         return self._builder.insert(bigint.ConstantOp(IntegerAttr(value, builtin.i32)))
 
-    # arith.ConstantOp.from_val()
-
 
 class IRGenCompiler(IRGen):
     def _insert_bignum_decls(self, module: builtin.ModuleOp):

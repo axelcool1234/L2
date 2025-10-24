@@ -134,6 +134,7 @@
         packages.default = pkgs.stdenv.mkDerivation {
           pname = projectAsNixPkg.pname;
           version = projectAsNixPkg.version;
+          src = ./.;
 
           nativeBuildInputs = [ pkgs.makeWrapper ];
           buildInputs = [
@@ -142,8 +143,6 @@
             pkgs.llvmPackages.mlir
             pkgs.gmp
           ];
-
-          src = ./.;
 
           dontUnpack = true;
 
@@ -174,10 +173,8 @@
           pkgs.stdenv.mkDerivation {
             pname = "${projectAsNixPkg.pname}-test";
             version = projectAsNixPkg.version;
+            src = ./.;
 
-            nativeBuildInputs = [
-              pkgs.makeWrapper
-            ];
             buildInputs = [
               self.packages.${system}.default
               pkgs.clang
@@ -201,9 +198,7 @@
             #     ${self.packages.${system}.default}/tests/l2
             # '';
             buildPhase = ''
-              makeWrapper ${pkgs.lit}/bin/lit $out/bin/${projectAsNixPkg.pname}-test \
-                --add-flags "-v ${self.packages.${system}.default}/tests/l2"
-              lit -v ${self.packages.${system}.default}/tests/l2
+              lit -v $src/tests/l2
             '';
 
             installPhase = ''
@@ -211,6 +206,68 @@
               echo 'Tests passed!' > $out/result
             '';
           };
+
+        packages.ruff-check = pkgs.stdenv.mkDerivation {
+          pname = "${projectAsNixPkg.pname}-ruff-check";
+          version = projectAsNixPkg.version;
+          src = ./.;
+
+          buildInputs = [
+            pkgs.ruff
+          ];
+
+          dontUnpack = true;
+          buildPhase = ''
+            ruff check $src
+          '';
+
+          installPhase = ''
+            mkdir -p $out
+            echo "Ruff check passed!" > $out/result
+          '';
+        };
+
+        packages.ruff-format = pkgs.stdenv.mkDerivation {
+          pname = "${projectAsNixPkg.pname}-ruff-format";
+          version = projectAsNixPkg.version;
+          src = ./.;
+
+          buildInputs = [
+            pkgs.ruff
+          ];
+
+          dontUnpack = true;
+          buildPhase = ''
+            ruff format --check $src
+          '';
+
+          installPhase = ''
+            mkdir -p $out
+            echo "Ruff format passed!" > $out/result
+          '';
+        };
+
+        # Pyrefly project integrity check
+        packages.pyrefly-check = pkgs.stdenv.mkDerivation {
+          pname = "${projectAsNixPkg.pname}-pyrefly-check";
+          version = projectAsNixPkg.version;
+          src = ./.;
+
+          buildInputs = [
+            pkgs.pyrefly
+          ];
+
+          dontUnpack = true;
+          buildPhase = ''
+            cd $src
+            pyrefly check
+          '';
+
+          installPhase = ''
+            mkdir -p $out
+            echo "Pyrefly check passed!" > $out/result
+          '';
+        };
 
         # App for `nix run`
         apps.default = {
@@ -225,10 +282,33 @@
             cat ${self.packages.${system}.test}/result
           ''}/bin/run-tests"; # This just echoes that it succeeded. It won't even get this far if the tests fail in the buildPhase.
         };
+        apps.ruff-check = {
+          type = "app";
+          program = "${pkgs.writeShellScriptBin "ruff-check" ''
+            cat ${self.packages.${system}.ruff-check}/result
+          ''}/bin/ruff-check";
+        };
+
+        apps.ruff-format = {
+          type = "app";
+          program = "${pkgs.writeShellScriptBin "ruff-format" ''
+            cat ${self.packages.${system}.ruff-format}/result
+          ''}/bin/ruff-format";
+        };
+
+        apps.pyrefly-check = {
+          type = "app";
+          program = "${pkgs.writeShellScriptBin "pyrefly-check" ''
+            cat ${self.packages.${system}.pyrefly-check}/result
+          ''}/bin/pyrefly-check";
+        };
 
         # `nix flake check`
         checks = {
           test = self.packages.${system}.test;
+          ruff-check = self.packages.${system}.ruff-check;
+          ruff-format = self.packages.${system}.ruff-format;
+          pyrefly-check = self.packages.${system}.pyrefly-check;
         };
 
         # There are two different modes of development:

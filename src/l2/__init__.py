@@ -10,3 +10,10 @@ from .core import (
     grammar,
     precedence,
 )
+
+__all__ = [
+    "IRGenCompiler",
+    "IRGenInterpreter",
+    "grammar",
+    "precedence",
+]

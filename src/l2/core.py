@@ -46,6 +46,8 @@ Op = Union[
     bigint.GteOp,
     bigint.LtOp,
     bigint.LteOp,
+    bigint.FromElementsOp,
+    bigint.ExtractOp,
 ]
 Use = Union[Op, OpResult, BlockArgument]
 Node = List[Union[Token, Use]]
@@ -71,6 +73,7 @@ grammar = r"""
 ?program: stmt+
 
 ?stmt: lvar "=" expr               -> assign_stmt
+     | rvar "[" expr "]" "=" expr  -> array_assign_stmt
      | "%while" expr "{" stmt* "}" -> loop_stmt
      | "%print" expr               -> print_stmt
      | "%println" expr             -> println_stmt
@@ -105,8 +108,10 @@ grammar = r"""
 # Atoms have the highest precedence
 ?atom: INT                         -> int_expr
      | BOOL                        -> bool_expr
+     | rvar "[" expr "]"           -> array_load_expr
      | rvar
      | "(" expr ")"                -> paren_expr
+     | "[" expr ("," expr)* "]" -> array_literal
 
 BOOL: "%T" | "%F"
 
@@ -162,24 +167,21 @@ class IRGen(LarkInterpreter):
             print(f"\n[DEBUG] Visiting {name}:")
             try:
                 print(f"  node = {node}")
+                print("  -----------------------")
                 print(f"  len(node) = {len(node)}")
-            except Exception:
-                print("  node missing")
-            finally:
                 print("  -----------------------")
 
-            try:
-                print(f"  node[0] = {node[0]}")
-            except Exception:
-                print("  node[0] missing")
-            finally:
+                for i in range(len(node)):
+                    try:
+                        print(f"  node[{i}] = {node[i]}")
+                    except Exception as e:
+                        print(f"  node[{i}] missing: {e}")
+                    print("  -----------------------")
+            except TypeError:
+                print("  node doesn't support indexing")
                 print("  -----------------------")
-
-            try:
-                print(f"  node[1] = {node[1]}")
-            except Exception:
-                print("  node[1] missing")
-            finally:
+            except Exception as e:
+                print(f"  Error accessing node: {e}")
                 print("  -----------------------")
 
     def _assert_binary(self, node: List[Use]):
@@ -398,8 +400,7 @@ class IRGen(LarkInterpreter):
         node[0] = [Token('VAR', lvar)]
         """
         self._dbg("lvar", node)
-        assert len(node) == 1
-        assert isinstance(node[0], Token)
+        self._assert_token(node)
 
         return node[0]  # unwrap
 
@@ -436,6 +437,41 @@ class IRGenInterpreter(IRGen):
         builder = Builder(InsertPoint.at_end(module.body.blocks[0]))
         builder.insert(self._func)
         return module
+
+    @visit_children_decor  # pyrefly: ignore
+    def array_assign_stmt(self, node):
+        """
+        node[0] = vector<#x!bigint.bigint>
+        node[1] = Use
+        node[2] = Use
+        """
+        print("hi")
+        self._dbg("array_assign_stmt", node)
+        print(node)
+        for i in node:
+            print(i)
+        print(len(node))
+        # return vector.InsertOp
+        raise Exception
+
+    @visit_children_decor  # pyrefly: ignore
+    def array_load_expr(self, node: List[Use]):
+        """
+        node[0] = vector<#x!bigint.bigint>
+        node[1] = Use
+        """
+        self._dbg("array_load_expr", node)
+        assert isinstance(node[0], OpResult) or isinstance(node[0], BlockArgument)
+
+        return self._builder.insert(bigint.ExtractOp(node[0], [node[1]], bigint.bigint))
+
+    @visit_children_decor  # pyrefly: ignore
+    def array_literal(self, node: List[Use]):
+        """
+        node = [Use]
+        """
+        self._dbg("array_literal", node)
+        return self._builder.insert(bigint.FromElementsOp(node))
 
     @visit_children_decor  # pyrefly: ignore
     def add_expr(self, node: List[Use]) -> bigint.AddOp:

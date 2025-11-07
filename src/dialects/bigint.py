@@ -1,4 +1,8 @@
 # ruff: noqa: F405
+from xdsl.ir.core import Attribute
+from xdsl.dialects.builtin import VectorType
+from typing import Sequence
+from xdsl.irdl.operations import var_operand_def
 from typing import cast
 
 from xdsl.dialects.bigint import *  # noqa: F403
@@ -27,12 +31,97 @@ class ConstantOp(IRDLOperation):
     value = attr_def(IntegerAttr)
     result = result_def(bigint)
 
+    assembly_format = "$value attr-dict `:` type($result)"
+
     def __init__(self, value: IntegerAttr):
         super().__init__(
             operands=[],
             result_types=[bigint],
             attributes={"value": value},
         )
+
+
+@irdl_op_definition
+class FromElementsOp(IRDLOperation):
+    """Create a vector of bigints."""
+
+    name = "bigint.from_elements"
+    elements = var_operand_def(bigint)
+    result = result_def()
+
+    assembly_format = "$elements attr-dict `:` type($result)"
+
+    def __init__(self, elements: Sequence[SSAValue | Operation]):
+        super().__init__(
+            operands=[elements],
+            result_types=[VectorType(BigIntegerType(), [len(elements)])],
+        )
+
+
+@irdl_op_definition
+class ExtractOp(IRDLOperation):
+    """Extract an element out of a bigint vector."""
+
+    name = "bigint.extract"
+
+    vector = operand_def(VectorType)
+
+    result = result_def(bigint)
+
+    assembly_format = "$vector attr-dict `:` type($result) `from` type($vector)"
+
+    def __init__(
+        self,
+        vector: SSAValue,
+        positions: Sequence[SSAValue | Operation],
+        result_type: Attribute,
+    ):
+        super().__init__(
+            operands=[vector],
+            result_types=[result_type],
+        )
+
+
+# @irdl_op_definition
+# class InsertOp(IRDLOperation):
+#     """Insert an element into a bigint vector at the specified index."""
+
+#     name = "bigint.insert"
+
+#     source = operand_def(VectorType)
+#     dest = operand_def(bigint)
+#     result = result_def(VectorType)
+
+#     traits = traits_def(Pure())
+
+#     assembly_format = (
+#         "$source `,` $dest custom<DynamicIndexList>($dynamic_position, $static_position)"
+#         "attr-dict `:` type($source) `into` type($dest)"
+#     )
+
+#     custom_directives = (DynamicIndexList,)
+
+#     def __init__(
+#         self,
+#         source: SSAValue,
+#         dest: SSAValue,
+#         positions: Sequence[SSAValue | int],
+#         result_type: Attribute | None = None,
+#     ):
+#         static_positions, dynamic_positions = split_dynamic_index_list(
+#             positions, InsertOp.DYNAMIC_INDEX
+#         )
+
+#         if result_type is None:
+#             result_type = dest.type
+
+#         super().__init__(
+#             operands=[source, dest, dynamic_positions],
+#             result_types=[result_type],
+#             properties={
+#                 "static_position": DenseArrayBase.from_list(i64, static_positions)
+#             },
+#         )
 
 
 @irdl_op_definition

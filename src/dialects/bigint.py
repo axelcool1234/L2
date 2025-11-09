@@ -47,7 +47,7 @@ class ConstantOp(IRDLOperation):
 
 @irdl_op_definition
 class FromElementsOp(IRDLOperation):
-    """Create a vector of bigints."""
+    """Create a vector of `bigint`s."""
 
     name = "bigint.from_elements"
     elements = var_operand_def(bigint)
@@ -64,7 +64,7 @@ class FromElementsOp(IRDLOperation):
 
 @irdl_op_definition
 class ExtractOp(IRDLOperation):
-    """Extract an element out of a bigint vector."""
+    """Extract an element out of a `bigint` vector."""
 
     name = "bigint.extractelement"
 
@@ -93,7 +93,7 @@ class ExtractOp(IRDLOperation):
 
 @irdl_op_definition
 class InsertOp(IRDLOperation):
-    """Insert an element into a bigint vector at the specified index."""
+    """Insert an element into a `bigint` vector at the specified index."""
 
     name = "bigint.insert"
 
@@ -104,7 +104,6 @@ class InsertOp(IRDLOperation):
     traits = traits_def(Pure())
 
     assembly_format = "$source `,` $dest `[` $position `]` attr-dict `:` type($source) `into` type($dest) `as` type($result)"
-    # assembly_format = "$source `,` $dest `[` $position `]` attr-dict `:` type($source) `into` type($dest)"
 
     def __init__(
         self,
@@ -120,7 +119,7 @@ class InsertOp(IRDLOperation):
 
 @irdl_op_definition
 class PrintOp(IRDLOperation):
-    """Print a bigint or a vector of bigints."""
+    """Print a `bigint` or a vector of `bigint`s."""
 
     name = "bigint.print"
 
@@ -136,7 +135,7 @@ class PrintOp(IRDLOperation):
 
 @irdl_op_definition
 class PrintlnOp(IRDLOperation):
-    """Println a bigint or a vector of bigints."""
+    """Println a `bigint` or a vector of `bigint`s."""
 
     name = "bigint.println"
 

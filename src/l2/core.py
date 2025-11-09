@@ -26,10 +26,11 @@ from xdsl.utils.scoped_dict import ScopedDict
 from dialects import bigint, bignum
 
 Op = Union[
+    arith.ConstantOp,
     arith.AndIOp,
     arith.OrIOp,
     arith.XOrIOp,
-    arith.ConstantOp,
+    bignum.ConstantOp,
     bignum.AddOp,
     bignum.EqOp,
     bignum.NeqOp,
@@ -37,7 +38,9 @@ Op = Union[
     bignum.GteOp,
     bignum.LtOp,
     bignum.LteOp,
-    bignum.ConstantOp,
+    bignum.FromElementsOp,
+    bignum.InsertOp,
+    bignum.ExtractOp,
     bigint.ConstantOp,
     bigint.AddOp,
     bigint.EqOp,
@@ -47,6 +50,7 @@ Op = Union[
     bigint.LtOp,
     bigint.LteOp,
     bigint.FromElementsOp,
+    bigint.InsertOp,
     bigint.ExtractOp,
 ]
 Use = Union[Op, OpResult, BlockArgument]
@@ -552,6 +556,42 @@ class IRGenCompiler(IRGen):
         builder.insert(self._func)
         self._insert_bignum_decls(module)
         return module
+
+    @visit_children_decor  # pyrefly: ignore
+    def array_assign_stmt(self, node):
+        """
+        node[0] = Token('VAR', var_name), type(symbol_table[var_name]) == VectorType
+        node[1] = Use
+        node[2] = Use
+        """
+        self._dbg("array_assign_stmt", node)
+        assert self._symbol_table is not None
+        assert isinstance(node[0], Token)
+        var_name = str(node[0])
+        vector = self._symbol_table[var_name]
+        assert isinstance(vector.type, builtin.VectorType)
+        res = self._builder.insert(bignum.InsertOp(node[2], vector, node[1]))
+        self._symbol_table[var_name] = res.result
+        return res
+
+    @visit_children_decor  # pyrefly: ignore
+    def array_load_expr(self, node: List[Use]):
+        """
+        node[0] = vector<#x!bigint.bigint>
+        node[1] = Use
+        """
+        self._dbg("array_load_expr", node)
+        assert isinstance(node[0], OpResult) or isinstance(node[0], BlockArgument)
+
+        return self._builder.insert(bignum.ExtractOp(node[0], node[1]))
+
+    @visit_children_decor  # pyrefly: ignore
+    def array_literal(self, node: List[Use]):
+        """
+        node = [Use]
+        """
+        self._dbg("array_literal", node)
+        return self._builder.insert(bignum.FromElementsOp(node))
 
     @visit_children_decor  # pyrefly: ignore
     def add_expr(self, node: List[Use]) -> bignum.AddOp:

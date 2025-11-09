@@ -19,10 +19,10 @@ from xdsl.dialects import arith, builtin, cf, func, llvm, printf, scf
 from xdsl.dialects.builtin import ModuleOp
 from xdsl.interpreter import Interpreter, PythonValues, impl, register_impls
 from xdsl.interpreters.arith import ArithFunctions, _int_bitwidth
-from xdsl.transforms.mlir_opt import MLIROptPass
 from xdsl.utils.hints import isa
 
 from dialects import LowerBigNumToLLVM, bigint
+from transforms import ConvertScfToCf
 from l2 import (
     IRGenCompiler,
     IRGenInterpreter,
@@ -242,9 +242,7 @@ def interpret_loop_lang(
     register_implementations(interpreter, ctx)
 
     # MLIR -> MLIR (lowerings to make it interpretable)
-    MLIROptPass(
-        arguments=("--convert-scf-to-cf", "--allow-unregistered-dialect")
-    ).apply(ctx, module)
+    ConvertScfToCf().apply(ctx, module)
 
     # MLIR -> Interpretation
     assert module.body.blocks[0].first_op is not None

@@ -73,7 +73,7 @@ grammar = r"""
 ?program: stmt+
 
 ?stmt: lvar "=" expr               -> assign_stmt
-     | rvar "[" expr "]" "=" expr  -> array_assign_stmt
+     | lvar "[" expr "]" "=" expr  -> array_assign_stmt
      | "%while" expr "{" stmt* "}" -> loop_stmt
      | "%print" expr               -> print_stmt
      | "%println" expr             -> println_stmt
@@ -441,18 +441,19 @@ class IRGenInterpreter(IRGen):
     @visit_children_decor  # pyrefly: ignore
     def array_assign_stmt(self, node):
         """
-        node[0] = vector<#x!bigint.bigint>
+        node[0] = Token('VAR', var_name), type(symbol_table[var_name]) == VectorType
         node[1] = Use
         node[2] = Use
         """
-        print("hi")
         self._dbg("array_assign_stmt", node)
-        print(node)
-        for i in node:
-            print(i)
-        print(len(node))
-        # return vector.InsertOp
-        raise Exception
+        assert self._symbol_table is not None
+        assert isinstance(node[0], Token)
+        var_name = str(node[0])
+        vector = self._symbol_table[var_name]
+        assert isinstance(vector.type, builtin.VectorType)
+        res = self._builder.insert(bigint.InsertOp(node[2], vector, node[1]))
+        self._symbol_table[var_name] = res.result
+        return res
 
     @visit_children_decor  # pyrefly: ignore
     def array_load_expr(self, node: List[Use]):
@@ -463,7 +464,7 @@ class IRGenInterpreter(IRGen):
         self._dbg("array_load_expr", node)
         assert isinstance(node[0], OpResult) or isinstance(node[0], BlockArgument)
 
-        return self._builder.insert(bigint.ExtractOp(node[0], [node[1]], bigint.bigint))
+        return self._builder.insert(bigint.ExtractOp(node[0], node[1]))
 
     @visit_children_decor  # pyrefly: ignore
     def array_literal(self, node: List[Use]):

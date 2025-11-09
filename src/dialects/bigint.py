@@ -1,4 +1,8 @@
 # ruff: noqa: F405
+from xdsl.irdl.attributes import base
+from typing import ClassVar
+from xdsl.irdl.constraints import VarConstraint
+from xdsl.irdl.operations import opt_operand_def
 from xdsl.ir.core import Attribute
 from xdsl.dialects.builtin import VectorType
 from typing import Sequence
@@ -62,76 +66,69 @@ class FromElementsOp(IRDLOperation):
 class ExtractOp(IRDLOperation):
     """Extract an element out of a bigint vector."""
 
-    name = "bigint.extract"
+    name = "bigint.extractelement"
 
     vector = operand_def(VectorType)
+    position = opt_operand_def(bigint)
+    result = result_def(Attribute)
+    traits = traits_def(Pure())
 
-    result = result_def(bigint)
-
-    assembly_format = "$vector attr-dict `:` type($result) `from` type($vector)"
+    assembly_format = (
+        "$vector `[` $position `]` attr-dict `:` type($result) `from` type($vector)"
+    )
 
     def __init__(
         self,
-        vector: SSAValue,
-        positions: Sequence[SSAValue | Operation],
-        result_type: Attribute,
+        vector: SSAValue | Operation,
+        position: SSAValue | Operation | None = None,
     ):
+        vector = SSAValue.get(vector, type=VectorType)
+        assert isinstance(vector.type, VectorType)
+
         super().__init__(
-            operands=[vector],
-            result_types=[result_type],
+            operands=[vector, position],
+            result_types=[vector.type.element_type],
         )
 
 
-# @irdl_op_definition
-# class InsertOp(IRDLOperation):
-#     """Insert an element into a bigint vector at the specified index."""
+@irdl_op_definition
+class InsertOp(IRDLOperation):
+    """Insert an element into a bigint vector at the specified index."""
 
-#     name = "bigint.insert"
+    name = "bigint.insert"
 
-#     source = operand_def(VectorType)
-#     dest = operand_def(bigint)
-#     result = result_def(VectorType)
+    source = operand_def(bigint)  # value to store
+    dest = operand_def(VectorType)
+    position = operand_def(bigint)
+    result = result_def()
+    traits = traits_def(Pure())
 
-#     traits = traits_def(Pure())
+    assembly_format = "$source `,` $dest `[` $position `]` attr-dict `:` type($source) `into` type($dest) `as` type($result)"
+    # assembly_format = "$source `,` $dest `[` $position `]` attr-dict `:` type($source) `into` type($dest)"
 
-#     assembly_format = (
-#         "$source `,` $dest custom<DynamicIndexList>($dynamic_position, $static_position)"
-#         "attr-dict `:` type($source) `into` type($dest)"
-#     )
-
-#     custom_directives = (DynamicIndexList,)
-
-#     def __init__(
-#         self,
-#         source: SSAValue,
-#         dest: SSAValue,
-#         positions: Sequence[SSAValue | int],
-#         result_type: Attribute | None = None,
-#     ):
-#         static_positions, dynamic_positions = split_dynamic_index_list(
-#             positions, InsertOp.DYNAMIC_INDEX
-#         )
-
-#         if result_type is None:
-#             result_type = dest.type
-
-#         super().__init__(
-#             operands=[source, dest, dynamic_positions],
-#             result_types=[result_type],
-#             properties={
-#                 "static_position": DenseArrayBase.from_list(i64, static_positions)
-#             },
-#         )
+    def __init__(
+        self,
+        source: SSAValue,
+        dest: SSAValue,
+        position: SSAValue,
+    ):
+        super().__init__(
+            operands=[source, dest, position],
+            result_types=[dest.type],
+        )
 
 
 @irdl_op_definition
 class PrintOp(IRDLOperation):
-    """Print a `bigint`."""
+    """Print a bigint or a vector of bigints."""
 
     name = "bigint.print"
 
-    val = operand_def(bigint)
-    assembly_format = "$val attr-dict"
+    _T: ClassVar = VarConstraint("T", base(BigIntegerType))
+    _V: ClassVar = VarConstraint("V", VectorType.constr(_T))
+
+    val = operand_def(VectorType.constr(_T) | _T)
+    assembly_format = "$val attr-dict `:` type($val)"
 
     def __init__(self, value: Operation | SSAValue):
         super().__init__(operands=[value], result_types=[])
@@ -139,12 +136,15 @@ class PrintOp(IRDLOperation):
 
 @irdl_op_definition
 class PrintlnOp(IRDLOperation):
-    """Println a `bigint`."""
+    """Println a bigint or a vector of bigints."""
 
     name = "bigint.println"
 
-    val = operand_def(bigint)
-    assembly_format = "$val attr-dict"
+    _T: ClassVar = VarConstraint("T", base(BigIntegerType))
+    _V: ClassVar = VarConstraint("V", VectorType.constr(_T))
+
+    val = operand_def(VectorType.constr(_T) | _T)
+    assembly_format = "$val attr-dict `:` type($val)"
 
     def __init__(self, value: Operation | SSAValue):
         super().__init__(operands=[value], result_types=[])
@@ -170,6 +170,22 @@ class BigIntFunctions(InterpreterFunctions):
         )
         value = cast(IntegerAttr, op.value)
         return (value.value.data,)
+
+    @impl(InsertOp)
+    def run_insert(self, interpreter: Interpreter, op: InsertOp, args: PythonValues):
+        vec = args[1]
+        vec[args[2]] = args[0]
+        return (vec,)
+
+    @impl(ExtractOp)
+    def run_extract(self, interpreter: Interpreter, op: ExtractOp, args: PythonValues):
+        return (args[0][args[1]],)
+
+    @impl(FromElementsOp)
+    def run_fromelements(
+        self, interpreter: Interpreter, op: FromElementsOp, args: PythonValues
+    ):
+        return (list(args),)
 
     @impl(AddOp)
     def run_add(self, interpreter: Interpreter, op: AddOp, args: PythonValues):

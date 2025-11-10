@@ -84,7 +84,6 @@ class TransitionExtractor:
         for var_name, initial_ssa in zip(var_names, while_op.arguments):
             var = self.var_to_z3[var_name]
             ssa = self._get_or_compute_z3_expr(initial_ssa)
-            print(ssa)
             constraints.append(var == ssa)
 
         return z3.And(constraints) if constraints else z3.BoolVal(True)

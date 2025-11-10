@@ -291,7 +291,7 @@ class IRGen(LarkInterpreter):
         self._dbg("loop_stmt", node)
         assert self._symbol_table is not None
 
-        loop_carried_vars = []
+        loop_carried_vars = set()
         for stmt in node.children[1:]:
             if (
                 stmt.data == "assign_stmt" or stmt.data == "array_assign_stmt"
@@ -300,7 +300,7 @@ class IRGen(LarkInterpreter):
                 var = stmt.children[0].children[0]
                 assert isinstance(var, Token)
                 if var in self._symbol_table:
-                    loop_carried_vars.append(var)
+                    loop_carried_vars.add(var)
 
         # Initial SSAs
         initial_ssas = [self._symbol_table[var] for var in loop_carried_vars]

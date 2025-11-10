@@ -11,7 +11,8 @@ from z3 import z3
 
 class TransitionExtractor:
     """
-    Extracts symbolic transition relation from LoopLang MLIR.
+    Extracts initiation condition I(x), transition relation T(x, x'),
+    and safety property P(x) from LoopLang MLIR.
     """
 
     # FIXME: This currently does not support arrays

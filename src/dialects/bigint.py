@@ -1,3 +1,5 @@
+# src/dialects/bigint.py
+
 # ruff: noqa: F405
 from xdsl.irdl.attributes import base
 from typing import ClassVar

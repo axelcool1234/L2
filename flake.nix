@@ -390,6 +390,7 @@
                           (old.src + "/src/dialects/bignum_to_llvm.py")
                           (old.src + "/src/dialects/bignum_runtime.c")
 
+                          (old.src + "/src/transforms/__init__.py")
                           (old.src + "/src/transforms/convert_scf_to_cf.py")
                         ];
                       };

@@ -45,10 +45,6 @@ class TransitionExtractor:
             self.var_to_z3[var_name] = z3.Int(var_name)
             self.var_to_z3[f"{var_name}'"] = z3.Int(f"{var_name}'")
 
-        # Map loop arguments to current-state variables
-        for var_name, arg_ssa in zip(var_names, while_op.arguments):
-            self.ssa_to_z3[arg_ssa] = self.var_to_z3[var_name]
-
         # Map before_region block args to current-state variables
         for var_name, block_arg in zip(var_names, while_op.before_region.block.args):
             self.ssa_to_z3[block_arg] = self.var_to_z3[var_name]
@@ -87,7 +83,8 @@ class TransitionExtractor:
 
         for var_name, initial_ssa in zip(var_names, while_op.arguments):
             var = self.var_to_z3[var_name]
-            ssa = self.ssa_to_z3[initial_ssa]
+            ssa = self._get_or_compute_z3_expr(initial_ssa)
+            print(ssa)
             constraints.append(var == ssa)
 
         return z3.And(constraints) if constraints else z3.BoolVal(True)
@@ -144,10 +141,6 @@ class TransitionExtractor:
 
         # Need to compute it by looking at the defining operation
         owner = ssa_value.owner
-
-        if owner is None:
-            # This is a block argument - should already be mapped!
-            raise Exception(f"Unmapped block argument: {ssa_value}")
 
         # Process the defining operation
         if isinstance(owner, bigint.ConstantOp):  # arbitrary precision integer

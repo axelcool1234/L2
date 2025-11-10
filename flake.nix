@@ -392,6 +392,8 @@
 
                           (old.src + "/src/transforms/__init__.py")
                           (old.src + "/src/transforms/convert_scf_to_cf.py")
+
+                          (old.src + "/src/ic3/__init__.py")
                         ];
                       };
 

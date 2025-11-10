@@ -4,6 +4,10 @@
 LoopLang CLI entrypoint.
 """
 
+from ic3.ic3 import IC3Prover
+from ic3.extractor import TransitionExtractor
+from xdsl.ir.core import Block
+from xdsl.ir.core import Operation
 import importlib.metadata
 import argparse
 import os
@@ -138,6 +142,8 @@ def compile_loop_lang(
     run: bool = False,
     debug: bool = False,
 ) -> None:
+    """Compile LoopLang into an executable binary"""
+
     # Source -> AST -> MLIR
     module = source_to_mlir(input, debug, IRGenCompiler)
 
@@ -229,6 +235,8 @@ def interpret_loop_lang(
     run: bool = False,
     debug: bool = False,
 ) -> None:
+    """Interpret LoopLang with Python semantics for arbitrary precision integers"""
+
     # Source -> AST -> MLIR
     module = source_to_mlir(input, debug, IRGenInterpreter)
 
@@ -247,6 +255,36 @@ def interpret_loop_lang(
     # MLIR -> Interpretation
     assert module.body.blocks[0].first_op is not None
     interpreter.call_op(module.body.blocks[0].first_op)
+
+
+def verify_loop_lang(input: Path, debug: bool = False):
+    """Run IC3 verification on LoopLang program"""
+
+    # Source -> AST -> MLIR
+    module = source_to_mlir(input, debug, IRGenInterpreter)
+
+    # Extract verification conditions
+    extractor = TransitionExtractor(module)
+
+    # Find while loops
+    func_op = module.body.blocks[0].first_op
+    assert isinstance(func_op, Operation)
+    block = func_op.regions[0].blocks.first
+    assert isinstance(block, Block)
+    for op in block.ops:
+        if isinstance(op, scf.WhileOp):
+            # Extraction
+            vars, initial, transition, property = extractor.extract_from_while(op)
+
+            prover = IC3Prover(vars, initial, transition, property)
+            result = prover.prove()
+
+            if result is True:
+                print("Property verified.")
+            elif result is False:
+                print("Property violated.")
+            else:
+                print("Verification inconclusive.")
 
 
 def main() -> None:
@@ -298,6 +336,9 @@ def main() -> None:
         action="store_true",
         help="Display version of L2",
     )
+    parser.add_argument(
+        "--verify", action="store_true", help="Verify safety properties using IC3"
+    )
 
     args = parser.parse_args()
 
@@ -309,6 +350,10 @@ def main() -> None:
     if args.grammar:
         print(f"--- L2 Precedence Rules ---\n{precedence}")
         print(f"--- L2 Grammar ---\n{grammar}")
+        return
+
+    if args.verify:
+        verify_loop_lang(args.input_file, args.debug)
         return
 
     if args.input_file is None:

@@ -21,8 +21,8 @@ from xdsl.interpreter import Interpreter, PythonValues, impl, register_impls
 from xdsl.interpreters.arith import ArithFunctions, _int_bitwidth
 from xdsl.utils.hints import isa
 
-from dialects import LowerBigNumToLLVM, bigint
-from transforms import ConvertScfToCf
+from dialects import bigint
+from transforms import ConvertScfToCf, LowerBigNumToLLVM
 from l2 import (
     IRGenCompiler,
     IRGenInterpreter,

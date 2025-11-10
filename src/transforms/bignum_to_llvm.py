@@ -22,7 +22,7 @@ from xdsl.pattern_rewriter import (
     op_type_rewrite_pattern,
 )
 
-from .bignum import (
+from dialects.bignum import (
     AddOp,
     BigNumType,
     ConstantOp,

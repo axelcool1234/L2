@@ -4,8 +4,4 @@
 Contains custom dialects like bignum
 """
 
-from .bignum_to_llvm import LowerBigNumToLLVM
-
-__all__ = [
-    "LowerBigNumToLLVM",
-]
+__all__ = []

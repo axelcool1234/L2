@@ -107,6 +107,7 @@ grammar = r"""
 
 # Boolean negation
 ?unary_expr: "!" unary_expr        -> negate_expr
+           | "%len" atom           -> array_len_expr
            | atom
 
 # Atoms have the highest precedence
@@ -276,7 +277,7 @@ class IRGen(LarkInterpreter):
         loop_carried_vars = []
         for stmt in node.children[1:]:
             if (
-                stmt.data == "assign_stmt"
+                stmt.data == "assign_stmt" or stmt.data == "array_assign_stmt"
             ):  # Tree('assign_stmt', [Tree(Token('RULE', 'lvar'), [Token('VAR', 'y')]), ... ])
                 # Only worry about variables that existed before the loop
                 var = stmt.children[0].children[0]
@@ -471,6 +472,19 @@ class IRGenInterpreter(IRGen):
         return self._builder.insert(bigint.ExtractOp(node[0], node[1]))
 
     @visit_children_decor  # pyrefly: ignore
+    def array_len_expr(self, node):
+        """
+        node[0] = vector<#x!bigint.bigint>
+        """
+        self._dbg("array_len_expr", node)
+        assert isinstance(node[0], OpResult) or isinstance(node[0], BlockArgument)
+        assert isinstance(node[0].type, builtin.VectorType)
+
+        return self._builder.insert(
+            bigint.ConstantOp(IntegerAttr(node[0].type.get_shape()[0], builtin.i32))
+        )
+
+    @visit_children_decor  # pyrefly: ignore
     def array_literal(self, node: List[Use]):
         """
         node = [Use]
@@ -584,6 +598,19 @@ class IRGenCompiler(IRGen):
         assert isinstance(node[0], OpResult) or isinstance(node[0], BlockArgument)
 
         return self._builder.insert(bignum.ExtractOp(node[0], node[1]))
+
+    @visit_children_decor  # pyrefly: ignore
+    def array_len_expr(self, node):
+        """
+        node[0] = vector<#x!bigint.bigint>
+        """
+        self._dbg("array_len_expr", node)
+        assert isinstance(node[0], OpResult) or isinstance(node[0], BlockArgument)
+        assert isinstance(node[0].type, builtin.VectorType)
+
+        return self._builder.insert(
+            bignum.ConstantOp(IntegerAttr(node[0].type.get_shape()[0], builtin.i32))
+        )
 
     @visit_children_decor  # pyrefly: ignore
     def array_literal(self, node: List[Use]):

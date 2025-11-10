@@ -15,7 +15,16 @@ class Clause:
     def __hash__(self):
         return hash(tuple(sorted([str(literal) for literal in self.literals])))
 
-    def to_z3(self) -> z3.ExprRef:
+    def __eq__(self, other):
+        if not isinstance(other, Clause):
+            return False
+        return set(str(literal) for literal in self.literals) == set(
+            str(literal) for literal in other.literals
+        )
+
+    def to_z3(self) -> z3.BoolRef:
+        if not self.literals:
+            return z3.BoolVal(False)
         smt_or = z3.Or(self.literals)
         assert isinstance(smt_or, z3.BoolRef)
         return smt_or
@@ -34,7 +43,7 @@ class Frame:
     def to_z3(self) -> z3.ExprRef:
         if not self.clauses:
             return z3.BoolVal(True)
-        smt_and = z3.And([c.to_z3() for c in self.clauses])
+        smt_and = z3.And([clause.to_z3() for clause in self.clauses])
         assert isinstance(smt_and, z3.BoolRef)
         return smt_and
 
@@ -47,9 +56,9 @@ class IC3Prover:
     def __init__(
         self,
         variables: List[str],
-        initial: z3.ExprRef,
-        transition: z3.ExprRef,
-        property: z3.ExprRef,
+        initial: z3.BoolRef,
+        transition: z3.BoolRef,
+        property: z3.BoolRef | None,
     ):
         """
         variables: List of program variable names
@@ -60,8 +69,15 @@ class IC3Prover:
         self.vars = variables
         self.initial = initial
         self.transition = transition
-        self.property = property
-        raise Exception("IC3Prover is unimplemented!")
+        self.property = property if property is not None else z3.BoolVal(True)
+
+        # Create Z3 variables for current and next state
+        self.state_vars = {v: z3.Int(v) for v in variables}
+        self.next_state_vars = {v: z3.Int(f"{v}'") for v in variables}
+
+        # Frames F_0, F_1, ..., F_k
+        # F_0 is always the initial condition
+        self.frames: List[Frame] = [Frame(set(), 0)]
 
     def prove(self):
         raise Exception("IC3Prover is unimplemented!")

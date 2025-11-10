@@ -275,6 +275,7 @@ def verify_loop_lang(input: Path, debug: bool = False):
         if isinstance(op, scf.WhileOp):
             # Extraction
             vars, initial, transition, property = extractor.extract_from_while(op)
+            print(vars, initial, transition, property)
 
             prover = IC3Prover(vars, initial, transition, property)
             result = prover.prove()

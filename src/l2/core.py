@@ -260,10 +260,27 @@ class IRGen(LarkInterpreter):
 
         var_name = str(node[0])
         if isinstance(node[1], (OpResult, BlockArgument)):
-            self._symbol_table[var_name] = node[1]
+            ssa_val = node[1]
+            self._symbol_table[var_name] = ssa_val
         else:
             assert isinstance(node[1], Op)
-            self._symbol_table[var_name] = node[1].result
+            ssa_val = node[1].result
+            self._symbol_table[var_name] = ssa_val
+
+        # TODO: Not sure how robust/correct this is...
+        # Try to attach a lightweight name metadata to the defining operation.
+        owner_op = ssa_val.owner
+
+        # Skip annotating block arguments (owner can be a Block).
+        if isinstance(owner_op, Block):
+            return node[1]
+
+        # Only set the attribute if it's not already present. This prevents a later
+        # assignment that reuses the same SSA from clobbering the original, more
+        # descriptive name.
+        if "l2.var_name" not in owner_op.attributes:
+            owner_op.attributes["l2.var_name"] = builtin.StringAttr(var_name)
+
         return node[1]
 
     def loop_stmt(self, node: Tree) -> scf.WhileOp:

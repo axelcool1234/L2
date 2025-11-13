@@ -45,7 +45,7 @@ class Frame:
 
     def to_z3(self) -> z3.ExprRef:
         if not self.clauses:
-            return z3.BoolVal(True)
+            return self.assumption
         smt_and = z3.And(
             [clause.to_z3() for clause in self.clauses] + [self.assumption]
         )

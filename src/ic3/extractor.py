@@ -82,10 +82,18 @@ class TransitionExtractor:
         """
         constraints = []
 
+        # Initial values entering the loop
         for var_name, initial_ssa in zip(var_names, while_op.arguments):
             var = self.var_to_z3[var_name]
             ssa = self._get_or_compute_z3_expr(initial_ssa)
             constraints.append(var == ssa)
+
+        # Loop entry condition
+        # The before_region ends with a scf.ConditionOp that determines loop entry
+        condition_op = while_op.before_region.block.last_op
+        if isinstance(condition_op, scf.ConditionOp):
+            condition_expr = self._get_or_compute_z3_expr(condition_op.condition)
+            constraints.append(condition_expr)
 
         return z3.And(constraints) if constraints else z3.BoolVal(True)
 
@@ -162,6 +170,43 @@ class TransitionExtractor:
             z3_expr = lhs + rhs
             self.ssa_to_z3[ssa_value] = z3_expr
             return z3_expr
+        elif isinstance(owner, bigint.EqOp):
+            lhs = self._get_or_compute_z3_expr(owner.lhs)
+            rhs = self._get_or_compute_z3_expr(owner.rhs)
+            z3_expr = lhs == rhs
+            self.ssa_to_z3[ssa_value] = z3_expr
+            return z3_expr
+        elif isinstance(owner, bigint.NeqOp):
+            lhs = self._get_or_compute_z3_expr(owner.lhs)
+            rhs = self._get_or_compute_z3_expr(owner.rhs)
+            z3_expr = lhs != rhs
+            self.ssa_to_z3[ssa_value] = z3_expr
+            return z3_expr
+        elif isinstance(owner, bigint.GtOp):
+            lhs = self._get_or_compute_z3_expr(owner.lhs)
+            rhs = self._get_or_compute_z3_expr(owner.rhs)
+            z3_expr = lhs > rhs
+            self.ssa_to_z3[ssa_value] = z3_expr
+            return z3_expr
+        elif isinstance(owner, bigint.GteOp):
+            lhs = self._get_or_compute_z3_expr(owner.lhs)
+            rhs = self._get_or_compute_z3_expr(owner.rhs)
+            z3_expr = lhs >= rhs
+            self.ssa_to_z3[ssa_value] = z3_expr
+            return z3_expr
+        elif isinstance(owner, bigint.LtOp):
+            lhs = self._get_or_compute_z3_expr(owner.lhs)
+            rhs = self._get_or_compute_z3_expr(owner.rhs)
+            z3_expr = lhs < rhs
+            self.ssa_to_z3[ssa_value] = z3_expr
+            return z3_expr
+        elif isinstance(owner, bigint.LteOp):
+            lhs = self._get_or_compute_z3_expr(owner.lhs)
+            rhs = self._get_or_compute_z3_expr(owner.rhs)
+            z3_expr = lhs <= rhs
+            self.ssa_to_z3[ssa_value] = z3_expr
+            return z3_expr
+
         else:
             raise Exception(
                 f"Cannot compute Z3 expression for SSA value defined by {owner}"

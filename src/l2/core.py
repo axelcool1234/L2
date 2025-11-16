@@ -1,5 +1,6 @@
 # src/l2/core.py
 
+from xdsl.dialects.builtin import StringAttr
 from typing import List, Union
 
 from lark.lexer import Token
@@ -23,7 +24,7 @@ from xdsl.ir.core import (
 from xdsl.rewriter import InsertPoint
 from xdsl.utils.scoped_dict import ScopedDict
 
-from dialects import bigint, bignum
+from dialects import bigint, bignum, noop
 
 Op = Union[
     arith.ConstantOp,
@@ -81,6 +82,7 @@ grammar = r"""
      | "%while" expr "{" stmt* "}" -> loop_stmt
      | "%print" expr               -> print_stmt
      | "%println" expr             -> println_stmt
+     | "%assert" "#" ASSERT_BODY "#"  -> assert_stmt
 
 ?expr: or_expr
 
@@ -124,6 +126,7 @@ lvar: VAR
 rvar: VAR
 
 COMMENT: ";" /[^\n]/*
+ASSERT_BODY: /[^#]+/
 %ignore COMMENT
 
 %import common.INT
@@ -375,6 +378,12 @@ class IRGen(LarkInterpreter):
 
         # Insert loop op in parent region
         return self._builder.insert(loop_op)
+
+    def assert_stmt(self, node: Tree):
+        self._dbg("assert_stmt", node)
+        assert_body = node.children[0]
+        assert isinstance(assert_body, Token)
+        return self._builder.insert(noop.NoOperation(StringAttr(assert_body.value)))
 
     @visit_children_decor  # pyrefly: ignore
     def print_stmt(self, node: List[Use]) -> Print:

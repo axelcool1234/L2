@@ -4,6 +4,7 @@
 LoopLang CLI entrypoint.
 """
 
+from transforms.noop import LowerNoOp
 from ic3.ic3 import IC3Prover
 from ic3.extractor import TransitionExtractor
 from xdsl.ir.core import Block
@@ -154,6 +155,7 @@ def compile_loop_lang(
     # Lower custom dialects first
     ctx = context()
     LowerBigNumToLLVM().apply(ctx, module)
+    LowerNoOp().apply(ctx, module)
 
     # MLIR -> LLVM
     llvm_bytes = run_cmd(
@@ -251,6 +253,7 @@ def interpret_loop_lang(
 
     # MLIR -> MLIR (lowerings to make it interpretable)
     ConvertScfToCf().apply(ctx, module)
+    LowerNoOp().apply(ctx, module)
 
     # MLIR -> Interpretation
     assert module.body.blocks[0].first_op is not None

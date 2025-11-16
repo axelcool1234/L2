@@ -1,0 +1,8 @@
+; RUN: %l2 %s --verify | filecheck %s
+
+x = 0
+%while x >= 0 {
+	x = x + 2
+}
+
+; CHECK: Property verified.

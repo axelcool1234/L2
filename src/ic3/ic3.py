@@ -388,8 +388,8 @@ class IC3Prover:
                 m = self.inductively_generalize(state, n, k)
                 if m is None:
                     return False
-                states.remove((n, state))
-                states.remove((m + 1, state))
+                states.discard((n, state))
+                states.discard((m + 1, state))
         return True
 
     def propagate_clauses(self, k: int):

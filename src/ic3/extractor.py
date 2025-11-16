@@ -1,12 +1,78 @@
 # src/l2/extractor.py
 
+from xdsl.context import Context
+from transforms.noop import LowerNoOp
+from lark.lark import Lark
+from xdsl.dialects import arith, builtin, scf
 from xdsl.dialects.builtin import StringAttr
-from xdsl.ir.core import Block
-from xdsl.ir.core import Operation
-from xdsl.ir.core import SSAValue
-from xdsl.dialects import builtin, scf, arith
-from dialects import bigint
+from xdsl.ir.core import Block, Operation, SSAValue
 from z3 import z3
+
+from dialects import bigint, noop
+
+from lark import Transformer
+
+
+assert_grammar = r"""
+?program: expr
+
+?expr: or_expr
+
+# Boolean OR (lowest precedence)
+?or_expr: and_expr
+        | or_expr "||" and_expr      -> or_expr
+
+# Boolean AND
+?and_expr: cmp_expr
+         | and_expr "&&" cmp_expr    -> and_expr
+
+# Comparisons
+?cmp_expr: add_expr
+         | cmp_expr "<"  add_expr    -> ult_expr
+         | cmp_expr ">"  add_expr    -> ugt_expr
+         | cmp_expr "<=" add_expr    -> ule_expr
+         | cmp_expr ">=" add_expr    -> uge_expr
+         | cmp_expr "==" add_expr    -> eq_expr
+         | cmp_expr "!=" add_expr    -> ne_expr
+
+# Addition
+?add_expr: mul_expr
+         | add_expr "+" mul_expr     -> add_expr
+
+# Modulo
+?mul_expr: unary_expr
+         | mul_expr "%" unary_expr   -> mod_expr
+
+# Unary
+?unary_expr: "!" unary_expr          -> negate_expr
+           | atom
+
+# Atoms
+?atom: INT                           -> int_expr
+     | BOOL                          -> bool_expr
+     | VAR                           -> var_expr
+     | "(" expr ")"                  -> paren_expr
+     | "[" expr ("," expr)* "]"      -> array_literal
+
+BOOL: "%T" | "%F"
+
+%import common.INT
+%import common.CNAME -> VAR
+%import common.WS
+%ignore WS
+"""
+
+
+class AssertToZ3(Transformer):
+    """
+    Transform the assert statements into a z3 BoolRef.
+
+    - All vars are Ints.
+    - %T / %F are BoolVal(True/False).
+    - + and % are integer operators.
+    - Comparisons return Bool expressions.
+    - &&, ||, ! mapped to And, Or, Not.
+    """
 
 
 class TransitionExtractor:
@@ -55,9 +121,9 @@ class TransitionExtractor:
             self.ssa_to_z3[block_arg] = self.var_to_z3[var_name]
 
         # Extract I(x), T(x, x'), and P(x)
+        property = self._extract_property(while_op, var_names)
         initial = self._extract_initial(while_op, var_names)
         transition = self._extract_transition(while_op, var_names)
-        property = self._extract_property(while_op, var_names)
 
         assert isinstance(initial, z3.BoolRef)
         assert isinstance(transition, z3.BoolRef)
@@ -135,8 +201,21 @@ class TransitionExtractor:
         Get the safety property of the while loop from %assert
         statements.
         """
-        # TODO: Implement this!
-        return None
+        parser = Lark(assert_grammar, start="program", parser="lalr")
+        generator = AssertToZ3()
+        assertions = list()
+        for op in while_op.after_region.block.ops:
+            if not isinstance(op, noop.NoOperation):
+                continue
+            assertion = str(op.attributes["info"]).strip('"')
+            tree = parser.parse(assertion)
+            assertion = generator.transform(tree)
+            print(assertion)
+            assert isinstance(assertion, z3.BoolRef)
+            assertions.append(assertion)
+            print(assertion)
+        LowerNoOp().apply(Context(), self.module)
+        return z3.And(assertions)
 
     def _get_or_compute_z3_expr(self, ssa_value: SSAValue) -> z3.ArithRef:
         """

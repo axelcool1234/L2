@@ -26,7 +26,7 @@ from xdsl.interpreter import Interpreter, PythonValues, impl, register_impls
 from xdsl.interpreters.arith import ArithFunctions, _int_bitwidth
 from xdsl.utils.hints import isa
 
-from dialects import bigint
+from dialects import bigint, noop
 from transforms import ConvertScfToCf, LowerBigNumToLLVM
 from l2 import (
     IRGenCompiler,
@@ -68,6 +68,7 @@ def context() -> Context:
     ctx.load_dialect(printf.Printf)
     ctx.load_dialect(scf.Scf)
     ctx.load_dialect(llvm.LLVM)
+    ctx.load_dialect(noop.NoOp)
     return ctx
 
 
@@ -278,6 +279,10 @@ def verify_loop_lang(input: Path, debug: bool = False):
         if isinstance(op, scf.WhileOp):
             # Extraction
             vars, initial, transition, property = extractor.extract_from_while(op)
+            from z3 import z3
+
+            property = z3.Int("x") % z3.IntVal(2) == z3.IntVal(0)
+            assert isinstance(property, z3.BoolRef)
             print(vars, initial, transition, property)
 
             prover = IC3Prover(vars, initial, transition, property)

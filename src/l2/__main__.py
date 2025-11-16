@@ -280,9 +280,13 @@ def verify_loop_lang(input: Path, debug: bool = False):
             # Extraction
             vars, initial, transition, property = extractor.extract_from_while(op)
             assert isinstance(property, z3.BoolRef)
-            print(vars, initial, transition, property)
+            if debug:
+                print("vars:", vars)
+                print("I(x):", initial)
+                print("T(x, x')", transition)
+                print("P(x)", property)
 
-            prover = IC3Prover(vars, initial, transition, property)
+            prover = IC3Prover(vars, initial, transition, property, debug)
             result = prover.prove()
 
             if result is True:

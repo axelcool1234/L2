@@ -64,6 +64,7 @@ class IC3Prover:
         initial: z3.BoolRef,
         transition: z3.BoolRef,
         property: z3.BoolRef | None,
+        debug=False,
     ):
         """
         variables: List of program variable names
@@ -82,6 +83,12 @@ class IC3Prover:
 
         # Frames F_0, F_1, ..., F_k
         self.frames: List[Frame] = []
+
+        self._debug = debug
+
+    def _debug_print(self, string: str):
+        if self._debug:
+            print(string)
 
     def prove(self):
         """
@@ -102,14 +109,14 @@ class IC3Prover:
         solver.add(self.initial)
         solver.add(z3.Not(self.property))
         if solver.check() == z3.sat:  # I ∧ ¬P
-            # print("Property violated in 0-step (initial state)")
+            self._debug_print("Property violated in 0-step (initial state)")
             return False
         solver = z3.Solver()
         solver.add(self.initial)
         solver.add(self.transition)
         solver.add(z3.Not(self._prime_formula(self.property)))
         if solver.check() == z3.sat:  # I ∧ T ∧ ¬P'
-            # print("Property violated in 1-step")
+            self._debug_print("Property violated in 1-step")
             return False
 
         # Initialize F_0, F_1, ... to assume that P is invariant,
@@ -136,7 +143,7 @@ class IC3Prover:
 
             # Strengthen F_k
             if not self.strengthen(k):
-                # print(f"IC3: Found counterexample at iteration {k}")
+                self._debug_print(f"IC3: Found counterexample at iteration {k}")
                 return False
 
             # Propagate clauses
@@ -148,7 +155,7 @@ class IC3Prover:
             # F_i is an inductive strengthening of P, proving P is an invariant.
             for i in range(1, k + 1):
                 if self.frames[i].clauses == self.frames[i + 1].clauses:
-                    # print(f"IC3: Converged at frame {i}")
+                    self._debug_print(f"IC3: Converged at frame {i}")
                     return True
         return None
 

@@ -39,12 +39,13 @@ assert_grammar = r"""
          | cmp_expr "!=" add_expr    -> ne_expr
 
 # Addition
-?add_expr: mod_expr
-         | add_expr "+" mod_expr     -> add_expr
+?add_expr: mul_expr
+         | add_expr "+" mul_expr     -> add_expr
 
-# Modulo
-?mod_expr: unary_expr
-         | mod_expr "%" unary_expr   -> mod_expr
+# Multiplication / Modulo
+?mul_expr: unary_expr
+         | mul_expr "*" unary_expr   -> mul_expr
+         | mul_expr "%" unary_expr   -> mod_expr
 
 # Unary
 ?unary_expr: "!" unary_expr          -> negate_expr
@@ -90,6 +91,9 @@ class AssertToZ3(Transformer):
 
     def mod_expr(self, node: List[z3.ArithRef]):
         return node[0] % node[1]
+
+    def mul_expr(self, node: List[z3.ArithRef]):
+        return node[0] * node[1]
 
     def negate_expr(self, node: List[z3.ArithRef]):
         return z3.Not(node[0])

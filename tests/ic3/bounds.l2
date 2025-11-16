@@ -1,0 +1,9 @@
+; RUN: %l2 %s --verify | filecheck %s
+
+x = 0
+%while x < 10 {
+    %assert # 0 <= x && x <= 10 #
+    x = x + 1
+}
+
+; CHECK: Property verified.

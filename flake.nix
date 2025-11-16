@@ -198,7 +198,7 @@
             #     ${self.packages.${system}.default}/tests/l2
             # '';
             buildPhase = ''
-              lit -v $src/tests/l2
+              lit -v $src/tests/*
             '';
 
             installPhase = ''

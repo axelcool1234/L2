@@ -102,14 +102,14 @@ class IC3Prover:
         solver.add(self.initial)
         solver.add(z3.Not(self.property))
         if solver.check() == z3.sat:  # I ∧ ¬P
-            print("Property violated in 0-step (initial state)")
+            # print("Property violated in 0-step (initial state)")
             return False
         solver = z3.Solver()
         solver.add(self.initial)
         solver.add(self.transition)
         solver.add(z3.Not(self._prime_formula(self.property)))
         if solver.check() == z3.sat:  # I ∧ T ∧ ¬P'
-            print("Property violated in 1-step")
+            # print("Property violated in 1-step")
             return False
 
         # Initialize F_0, F_1, ... to assume that P is invariant,
@@ -136,7 +136,7 @@ class IC3Prover:
 
             # Strengthen F_k
             if not self.strengthen(k):
-                print(f"IC3: Found counterexample at iteration {k}")
+                # print(f"IC3: Found counterexample at iteration {k}")
                 return False
 
             # Propagate clauses
@@ -148,7 +148,7 @@ class IC3Prover:
             # F_i is an inductive strengthening of P, proving P is an invariant.
             for i in range(1, k + 1):
                 if self.frames[i].clauses == self.frames[i + 1].clauses:
-                    print(f"IC3: Converged at frame {i}")
+                    # print(f"IC3: Converged at frame {i}")
                     return True
         return None
 

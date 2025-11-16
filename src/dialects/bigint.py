@@ -192,6 +192,10 @@ class BigIntFunctions(InterpreterFunctions):
     def run_add(self, interpreter: Interpreter, op: AddOp, args: PythonValues):
         return (args[0] + args[1],)
 
+    @impl(SubOp)
+    def run_sub(self, interpreter: Interpreter, op: SubOp, args: PythonValues):
+        return (args[0] - args[1],)
+
     @impl(EqOp)
     def run_eq(self, interpreter: Interpreter, op: EqOp, args: PythonValues):
         return (args[0] == args[1],)

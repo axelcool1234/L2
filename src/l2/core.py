@@ -44,6 +44,7 @@ Op = Union[
     bignum.ExtractOp,
     bigint.ConstantOp,
     bigint.AddOp,
+    bigint.SubOp,
     bigint.EqOp,
     bigint.NeqOp,
     bigint.GtOp,
@@ -103,9 +104,10 @@ grammar = r"""
          | cmp_expr "==" add_expr  -> eq_expr
          | cmp_expr "!=" add_expr  -> ne_expr
 
-# Addition
+# Addition / Subtraction
 ?add_expr: unary_expr
          | add_expr "+" unary_expr -> add_expr
+         | add_expr "-" unary_expr -> sub_expr
 
 # Boolean negation
 ?unary_expr: "!" unary_expr        -> negate_expr
@@ -521,6 +523,10 @@ class IRGenInterpreter(IRGen):
     @visit_children_decor  # pyrefly: ignore
     def add_expr(self, node: List[Use]) -> bigint.AddOp:
         return self._binary_op(bigint.AddOp, node, "add_expr")
+
+    @visit_children_decor  # pyrefly: ignore
+    def sub_expr(self, node: List[Use]) -> bigint.AddOp:
+        return self._binary_op(bigint.SubOp, node, "sub_expr")
 
     @visit_children_decor  # pyrefly: ignore
     def ult_expr(self, node: List[Use]):

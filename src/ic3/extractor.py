@@ -38,9 +38,10 @@ assert_grammar = r"""
          | cmp_expr "==" add_expr    -> eq_expr
          | cmp_expr "!=" add_expr    -> ne_expr
 
-# Addition
+# Addition / Subtraction
 ?add_expr: mul_expr
          | add_expr "+" mul_expr     -> add_expr
+         | add_expr "-" mul_expr     -> sub_expr
 
 # Multiplication / Modulo
 ?mul_expr: unary_expr
@@ -88,6 +89,9 @@ class AssertToZ3(Transformer):
 
     def add_expr(self, node: List[z3.ArithRef]):
         return node[0] + node[1]
+
+    def sub_expr(self, node: List[z3.ArithRef]):
+        return node[0] - node[1]
 
     def mod_expr(self, node: List[z3.ArithRef]):
         return node[0] % node[1]
@@ -283,6 +287,7 @@ class TransitionExtractor:
         Get or compute the Z3 expression for an SSA value.
         This handles values defined outside the loop.
         """
+        # FIXME: Figure out some sort of deduplication between this function and _process_op
         # Check if already computed
         if ssa_value in self.ssa_to_z3:
             return self.ssa_to_z3[ssa_value]
@@ -310,6 +315,14 @@ class TransitionExtractor:
             z3_expr = lhs + rhs
             self.ssa_to_z3[ssa_value] = z3_expr
             return z3_expr
+
+        elif isinstance(owner, bigint.SubOp):
+            lhs = self._get_or_compute_z3_expr(owner.lhs)
+            rhs = self._get_or_compute_z3_expr(owner.rhs)
+            z3_expr = lhs - rhs
+            self.ssa_to_z3[ssa_value] = z3_expr
+            return z3_expr
+
         elif isinstance(owner, bigint.EqOp):
             lhs = self._get_or_compute_z3_expr(owner.lhs)
             rhs = self._get_or_compute_z3_expr(owner.rhs)
@@ -358,6 +371,7 @@ class TransitionExtractor:
         Returns None if the operation just defines a value mapping.
         Returns a constraint if the operation adds a condition.
         """
+        # FIXME: Figure out some sort of deduplication between this function and _get_or_compute_z3_expr
 
         # ===== Boolean Operations =====
         if isinstance(op, arith.ConstantOp):
@@ -399,6 +413,12 @@ class TransitionExtractor:
             lhs = self._get_or_compute_z3_expr(op.lhs)
             rhs = self._get_or_compute_z3_expr(op.rhs)
             self.ssa_to_z3[op.result] = lhs + rhs
+            return None
+
+        elif isinstance(op, bigint.SubOp):
+            lhs = self._get_or_compute_z3_expr(op.lhs)
+            rhs = self._get_or_compute_z3_expr(op.rhs)
+            self.ssa_to_z3[op.result] = lhs - rhs
             return None
 
         # ===== BigInt Comparisons =====

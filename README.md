@@ -4,6 +4,8 @@ Install Nix using the Determinate Systems installer which automatically sets up 
 ```bash
 curl -fsSL https://install.determinate.systems/nix | sh -s -- install
 ```
+# Note:
+L2 has a compiler _and_ interpreter. However, the compiler lacks several key features, such as arrays and subtraction. Consider it unmaintained for now. L2 interprets by default.
 
 # Run the Compiler/Interpreter
 `nix run "github:axelcool1234/L2" [input_file] -- [flags go here]`

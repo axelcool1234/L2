@@ -1,5 +1,8 @@
 # src/l2/extractor.py
 
+from typing import Dict
+from typing import List
+from lark.lexer import Token
 from xdsl.context import Context
 from transforms.noop import LowerNoOp
 from lark.lark import Lark
@@ -36,12 +39,12 @@ assert_grammar = r"""
          | cmp_expr "!=" add_expr    -> ne_expr
 
 # Addition
-?add_expr: mul_expr
-         | add_expr "+" mul_expr     -> add_expr
+?add_expr: mod_expr
+         | add_expr "+" mod_expr     -> add_expr
 
 # Modulo
-?mul_expr: unary_expr
-         | mul_expr "%" unary_expr   -> mod_expr
+?mod_expr: unary_expr
+         | mod_expr "%" unary_expr   -> mod_expr
 
 # Unary
 ?unary_expr: "!" unary_expr          -> negate_expr
@@ -49,12 +52,8 @@ assert_grammar = r"""
 
 # Atoms
 ?atom: INT                           -> int_expr
-     | BOOL                          -> bool_expr
      | VAR                           -> var_expr
      | "(" expr ")"                  -> paren_expr
-     | "[" expr ("," expr)* "]"      -> array_literal
-
-BOOL: "%T" | "%F"
 
 %import common.INT
 %import common.CNAME -> VAR
@@ -73,6 +72,66 @@ class AssertToZ3(Transformer):
     - Comparisons return Bool expressions.
     - &&, ||, ! mapped to And, Or, Not.
     """
+
+    def __init__(self):
+        self.vars: Dict[str, z3.ArithRef] = dict()  # z3 Ints
+
+    def paren_expr(self, node):
+        return node[0]
+
+    def or_expr(self, node: List[z3.BoolRef]):
+        return z3.Or(node[0], node[1])
+
+    def and_expr(self, node: List[z3.BoolRef]):
+        return z3.And(node[0], node[1])
+
+    def add_expr(self, node: List[z3.ArithRef]):
+        return node[0] + node[1]
+
+    def mod_expr(self, node: List[z3.ArithRef]):
+        return node[0] % node[1]
+
+    def negate_expr(self, node: List[z3.ArithRef]):
+        return z3.Not(node[0])
+
+    def ult_expr(self, node: List[z3.ArithRef]):
+        return node[0] < node[1]
+
+    def ugt_expr(self, node: List[z3.ArithRef]):
+        return node[0] > node[1]
+
+    def ule_expr(self, node: List[z3.ArithRef]):
+        return node[0] <= node[1]
+
+    def uge_expr(self, node: List[z3.ArithRef]):
+        return node[0] >= node[1]
+
+    def eq_expr(self, node: List[z3.ArithRef]):
+        return node[0] == node[1]
+
+    def ne_expr(self, node: List[z3.ArithRef]):
+        return node[0] != node[1]
+
+    def var_expr(self, node: List[Token]):
+        """
+        node[0] = Token('VAR', var_name)
+        """
+        assert isinstance(node[0], Token)
+        var_name = node[0].value
+        assert isinstance(var_name, str)
+
+        if var_name in self.vars:
+            return self.vars[var_name]
+        self.vars[var_name] = z3.Int(var_name)
+        return self.vars[var_name]
+
+    def int_expr(self, node: List[Token]):
+        """
+        node[0] = Token('INT', int)
+        """
+        assert isinstance(node[0], Token)
+        integer = int(node[0].value)
+        return z3.IntVal(integer)
 
 
 class TransitionExtractor:
@@ -210,10 +269,8 @@ class TransitionExtractor:
             assertion = str(op.attributes["info"]).strip('"')
             tree = parser.parse(assertion)
             assertion = generator.transform(tree)
-            print(assertion)
             assert isinstance(assertion, z3.BoolRef)
             assertions.append(assertion)
-            print(assertion)
         LowerNoOp().apply(Context(), self.module)
         return z3.And(assertions)
 

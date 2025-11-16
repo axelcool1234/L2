@@ -4,13 +4,8 @@
 LoopLang CLI entrypoint.
 """
 
-from transforms.noop import LowerNoOp
-from ic3.ic3 import IC3Prover
-from ic3.extractor import TransitionExtractor
-from xdsl.ir.core import Block
-from xdsl.ir.core import Operation
-import importlib.metadata
 import argparse
+import importlib.metadata
 import os
 import subprocess
 import tempfile
@@ -24,16 +19,21 @@ from xdsl.dialects import arith, builtin, cf, func, llvm, printf, scf
 from xdsl.dialects.builtin import ModuleOp
 from xdsl.interpreter import Interpreter, PythonValues, impl, register_impls
 from xdsl.interpreters.arith import ArithFunctions, _int_bitwidth
+from xdsl.ir.core import Block, Operation
 from xdsl.utils.hints import isa
+from z3 import z3
 
 from dialects import bigint, noop
-from transforms import ConvertScfToCf, LowerBigNumToLLVM
+from ic3.extractor import TransitionExtractor
+from ic3.ic3 import IC3Prover
 from l2 import (
     IRGenCompiler,
     IRGenInterpreter,
     grammar,
     precedence,
 )
+from transforms import ConvertScfToCf, LowerBigNumToLLVM
+from transforms.noop import LowerNoOp
 
 IRGen = TypeVar("IRGen", IRGenCompiler, IRGenInterpreter)
 
@@ -279,9 +279,6 @@ def verify_loop_lang(input: Path, debug: bool = False):
         if isinstance(op, scf.WhileOp):
             # Extraction
             vars, initial, transition, property = extractor.extract_from_while(op)
-            from z3 import z3
-
-            property = z3.Int("x") % z3.IntVal(2) == z3.IntVal(0)
             assert isinstance(property, z3.BoolRef)
             print(vars, initial, transition, property)
 

@@ -120,14 +120,27 @@
         # After the overlays, your own project (as defined by [project.name] in pyproject.toml)
         # becomes a package within pythonSet. We fetch it (e.g., pythonSet."my-app-name") to get
         # its Nix-ified pname (package name) and version.
-        projectNameInToml = "l2"; # MUST match [project.name] in pyproject.toml!
+        projectNameInToml = "l2"; # MUST match [project.name] in pyproject.toml (uv2nix normalizes project names to lowercase)
         projectAsNixPkg = pythonSet.${projectNameInToml};
 
-        # 5. Create the Python Runtime Environment
-        # Using mkVirtualEnv, we create an environment (virtualenv) that includes the direct dependencies
-        # of your project (listed in workspace.deps.default, which comes from pyproject.toml). Because
-        # these dependencies are resolved from pythonSet, they respect the versions in your uv.lock.
+        # 5. Create the Python Runtime Environments
+        # Using mkVirtualEnv, we create environments for different purposes
+
+        # Main runtime environment with just the core dependencies
         virtualenv = pythonSet.mkVirtualEnv (projectAsNixPkg.pname + "-env") workspace.deps.default; # Uses deps from pyproject.toml [project.dependencies]
+
+        # Development environment with dev and test tools (ruff, pyrefly, lit, filecheck)
+        devVirtualenv = pythonSet.mkVirtualEnv (projectAsNixPkg.pname + "-dev-env") {
+          l2 = [
+            "dev"
+            "test"
+          ];
+        };
+
+        # Test environment with test tools (lit, filecheck)
+        testVirtualenv = pythonSet.mkVirtualEnv (projectAsNixPkg.pname + "-test-env") {
+          l2 = [ "test" ];
+        };
       in
       {
         # Nix Package for the application
@@ -162,118 +175,6 @@
         };
         packages.${projectAsNixPkg.pname} = self.packages.${system}.default;
 
-        # Nix Package for testing the application
-        packages.test =
-          # let
-          # Construct a virtual environment with only the test dependency-group enabled for testing.
-          # testVirtualenv = pythonSet.mkVirtualEnv (projectAsNixPkg.pname + "-test-env") {
-          #   l2 = [ "test" ];
-          # };
-          # in
-          pkgs.stdenv.mkDerivation {
-            pname = "${projectAsNixPkg.pname}-test";
-            version = projectAsNixPkg.version;
-            src = ./.;
-
-            buildInputs = [
-              self.packages.${system}.default
-              pkgs.clang
-              pkgs.llvmPackages.mlir
-
-              # With these dependencies, testVirtualenv does not need to be used and sourced
-              pkgs.lit
-              pkgs.filecheck
-            ];
-
-            dontUnpack = true;
-            # Because this package is running tests, and not actually building the main package
-            # the build phase is running the tests.
-            #
-            # In this particular example we also output a HTML coverage report, which is used as the build output.
-            # NOTE: The following commented out buildPhase uses testVirtualenv, which I have disabled.
-            # buildPhase = ''
-            #   source ${testVirtualenv}/bin/activate
-            #   export PATH="${self.packages.${system}.default}"/bin:$PATH
-            #   ${testVirtualenv}/bin/lit -v \
-            #     ${self.packages.${system}.default}/tests/l2
-            # '';
-            buildPhase = ''
-              lit -v $src/tests/*
-            '';
-
-            installPhase = ''
-              mkdir -p $out
-              echo 'Tests passed!' > $out/result
-            '';
-          };
-
-        packages.ruff-check = pkgs.stdenv.mkDerivation {
-          pname = "${projectAsNixPkg.pname}-ruff-check";
-          version = projectAsNixPkg.version;
-          src = ./.;
-
-          buildInputs = [
-            pkgs.ruff
-          ];
-
-          dontUnpack = true;
-          buildPhase = ''
-            ruff check $src
-          '';
-
-          installPhase = ''
-            mkdir -p $out
-            echo "Ruff check passed!" > $out/result
-          '';
-        };
-
-        packages.ruff-format = pkgs.stdenv.mkDerivation {
-          pname = "${projectAsNixPkg.pname}-ruff-format";
-          version = projectAsNixPkg.version;
-          src = ./.;
-
-          buildInputs = [
-            pkgs.ruff
-          ];
-
-          dontUnpack = true;
-          buildPhase = ''
-            ruff format --check $src
-          '';
-
-          installPhase = ''
-            mkdir -p $out
-            echo "Ruff format passed!" > $out/result
-          '';
-        };
-
-        # Pyrefly project integrity check
-        packages.pyrefly-check =
-          let
-            devVirtualenv = pythonSet.mkVirtualEnv (projectAsNixPkg.pname + "-test-env") {
-              l2 = [ "dev" ];
-            };
-          in
-          pkgs.stdenv.mkDerivation {
-            pname = "${projectAsNixPkg.pname}-pyrefly-check";
-            version = projectAsNixPkg.version;
-            src = ./.;
-
-            buildInputs = [
-              devVirtualenv
-            ];
-
-            dontUnpack = true;
-            buildPhase = ''
-              pyrefly check $src
-            '';
-
-            installPhase = ''
-              mkdir -p $out
-              echo "Pyrefly check passed!" > $out/result
-            '';
-          };
-
         # App for `nix run`
         apps.default = {
           type = "app";
@@ -283,51 +184,64 @@
 
         apps.test = {
           type = "app";
-          program = "${pkgs.writeShellScriptBin "run-tests" ''
-            cat ${self.packages.${system}.test}/result
-          ''}/bin/run-tests"; # This just echoes that it succeeded. It won't even get this far if the tests fail in the buildPhase.
+          program = "${pkgs.writeShellScriptBin "test" ''
+            set -e
+            export PATH="${testVirtualenv}/bin:${pkgs.clang}/bin:${pkgs.llvmPackages.mlir}/bin:$PATH"
+            export BIGNUM_RUNTIME_PATH="${self.packages.${system}.default}/lib/bignum_runtime.o"
+            export LDFLAGS="-L${pkgs.gmp.out}/lib"
+
+            echo "Running L2 tests..."
+            lit -v tests/l2
+            echo "Running IC3 tests..."
+            lit -v tests/ic3
+          ''}/bin/test";
         };
+
         apps.ruff-check = {
           type = "app";
           program = "${pkgs.writeShellScriptBin "ruff-check" ''
-            cat ${self.packages.${system}.ruff-check}/result
+            export PATH="${devVirtualenv}/bin:$PATH"
+            ruff check .
           ''}/bin/ruff-check";
         };
 
         apps.ruff-format = {
           type = "app";
           program = "${pkgs.writeShellScriptBin "ruff-format" ''
-            cat ${self.packages.${system}.ruff-format}/result
+            export PATH="${devVirtualenv}/bin:$PATH"
+            ruff format --check .
           ''}/bin/ruff-format";
         };
 
         apps.pyrefly-check = {
           type = "app";
           program = "${pkgs.writeShellScriptBin "pyrefly-check" ''
-            cat ${self.packages.${system}.pyrefly-check}/result
+            export PATH="${devVirtualenv}/bin:$PATH"
+            pyrefly check .
           ''}/bin/pyrefly-check";
         };
 
         # `nix flake check`
         checks = {
-          test = self.packages.${system}.test;
-          ruff-check = self.packages.${system}.ruff-check;
-          ruff-format = self.packages.${system}.ruff-format;
-          pyrefly-check = self.packages.${system}.pyrefly-check;
+          # Build check - make sure the package builds
+          build = self.packages.${system}.default;
         };
 
         # There are two different modes of development:
         # - Impurely using uv to manage virtual environments
         # - Pure development using uv2nix to manage virtual environments
         devShells = {
+          # Set impure as default for easier development
+          default = self.devShells.${system}.impure;
           # It is of course perfectly OK to keep using an impure virtualenv workflow and only use uv2nix to build packages.
           # This devShell simply adds Python and undoes the dependency leakage done by Nixpkgs Python infrastructure.
           impure = pkgs.mkShell {
             packages = [
-              virtualenv
+              devVirtualenv
               pkgs.uv
               pkgs.clang-tools
 
+              # System dependencies needed for L2 compilation
               pkgs.clang
               pkgs.llvmPackages.mlir
               pkgs.gmp
@@ -337,6 +251,11 @@
               UV_PYTHON_DOWNLOADS = "never";
               # Force uv to use nixpkgs Python interpreter
               UV_PYTHON = python.interpreter;
+
+              # Set up environment for C compilation
+              LDFLAGS = "-L${pkgs.gmp.out}/lib";
+              # Use the runtime from the main package
+              BIGNUM_RUNTIME_PATH = "${self.packages.${system}.default}/lib/bignum_runtime.o";
             }
             // lib.optionalAttrs pkgs.stdenv.isLinux {
               # Python libraries often load native shared objects using dlopen(3).
@@ -371,7 +290,7 @@
 
                   # Apply fixups for building an editable package of your workspace packages
                   (final: prev: {
-                    loop-lang = prev.loop-lang.overrideAttrs (old: {
+                    l2 = prev.l2.overrideAttrs (old: {
                       # It's a good idea to filter the sources going into an editable build
                       # so the editable package doesn't have to be rebuilt on every change.
                       src = lib.fileset.toSource {
@@ -387,11 +306,11 @@
                           (old.src + "/src/dialects/__init__.py")
                           (old.src + "/src/dialects/bigint.py")
                           (old.src + "/src/dialects/bignum.py")
-                          (old.src + "/src/dialects/bignum_to_llvm.py")
                           (old.src + "/src/dialects/bignum_runtime.c")
 
                           (old.src + "/src/transforms/__init__.py")
                           (old.src + "/src/transforms/convert_scf_to_cf.py")
+                          (old.src + "/src/transforms/bignum_to_llvm.py")
 
                           (old.src + "/src/ic3/__init__.py")
                         ];
@@ -417,7 +336,12 @@
               # Build virtual environment, with local packages being editable.
               #
               # Enable all optional dependencies for development.
-              virtualenv = editablePythonSet.mkVirtualEnv (projectAsNixPkg.pname + "-dev-env") workspace.deps.all;
+              virtualenv = editablePythonSet.mkVirtualEnv (projectAsNixPkg.pname + "-dev-env") {
+                l2 = [
+                  "dev"
+                  "test"
+                ];
+              };
             in
             pkgs.mkShell {
               packages = [
@@ -425,6 +349,7 @@
                 pkgs.uv
                 pkgs.clang-tools
 
+                # System dependencies needed for L2 compilation
                 pkgs.clang
                 pkgs.llvmPackages.mlir
                 pkgs.gmp
@@ -439,6 +364,11 @@
 
                 # Prevent uv from downloading managed Python's
                 UV_PYTHON_DOWNLOADS = "never";
+
+                # Set up environment for C compilation
+                LDFLAGS = "-L${pkgs.gmp.out}/lib";
+                # Use the runtime from the main package
+                BIGNUM_RUNTIME_PATH = "${self.packages.${system}.default}/lib/bignum_runtime.o";
               };
 
               shellHook = ''

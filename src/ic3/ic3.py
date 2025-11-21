@@ -481,7 +481,7 @@ class IC3Prover:
 
             if n > k:
                 self._debug_print(f"All states blocked above level {k}, push complete")
-                return  # All states blocked above k, so we are done.
+                return True  # All states blocked above k, so we are done.
 
             solver = z3.Solver()
             solver.add(self.frames[n].to_z3())
@@ -524,11 +524,10 @@ class IC3Prover:
                     return False
 
                 states.discard((n, state))
-                states.discard((m + 1, state))
+                states.add((m + 1, state))
                 self._debug_print(
-                    f"State pushed to level {m + 1}, removed from states set"
+                    f"State moved from level {n} to level {m + 1} in states set"
                 )
-        return True
 
     def propagate_clauses(self, k: int):
         """

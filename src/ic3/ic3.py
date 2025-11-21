@@ -86,9 +86,63 @@ class IC3Prover:
 
         self._debug = debug
 
-    def _debug_print(self, string: str):
+    def _debug_print(self, string: str, dump=False):
         if self._debug:
-            print(string)
+            print(f"[IC3] {string}")
+            if dump:
+                self._dump_frames()
+
+    def _dump_frames(self):
+        """Print detailed frame information"""
+        if not self._debug:
+            return
+        print("=" * 80)
+        print("FRAME DUMP:")
+        for i, frame in enumerate(self.frames):
+            print(f"  Frame F_{i} (level {frame.level}):")
+            print(f"    Assumption: {frame.assumption}")
+            if frame.clauses:
+                print(f"    Clauses ({len(frame.clauses)}):")
+                for j, clause in enumerate(frame.clauses):
+                    print(f"      C{j}: {clause.literals}")
+            else:
+                print("    Clauses: (empty)")
+            print()
+        print("=" * 80)
+
+    def _debug_solver(self, solver, context="Unknown context"):
+        """Enhanced solver state printing with context"""
+        if not self._debug:
+            return
+        print(f"[SOLVER] {context}")
+        print("-" * 60)
+        assertions = solver.assertions()
+        if assertions:
+            print(f"Solver has {len(assertions)} assertion(s):")
+            for i, assertion in enumerate(assertions):
+                print(f"  {i + 1}: {assertion}")
+        else:
+            print("Solver has no assertions")
+
+        # Check solver state
+        check_result = solver.check()
+        print(f"Solver check result: {check_result}")
+
+        if check_result == z3.sat:
+            model = solver.model()
+            print("Model (variable assignments):")
+            relevant_vars = []
+            for decl in model.decls():
+                if any(var_name in str(decl) for var_name in self.vars):
+                    relevant_vars.append((decl, model[decl]))
+
+            if relevant_vars:
+                for decl, val in sorted(relevant_vars, key=lambda x: str(x[0])):
+                    print(f"  {decl} = {val}")
+            else:
+                print("  (no relevant variable assignments found)")
+
+        print("-" * 60)
 
     def prove(self):
         """
@@ -108,15 +162,18 @@ class IC3Prover:
         solver = z3.Solver()
         solver.add(self.initial)
         solver.add(z3.Not(self.property))
+        self._debug_solver(solver, "Checking 0-step counterexample: I ∧ ¬P")
         if solver.check() == z3.sat:  # I ∧ ¬P
-            self._debug_print("Property violated in 0-step (initial state)")
+            self._debug_print("Property violated in 0-step (initial state)", dump=True)
             return False
+
         solver = z3.Solver()
         solver.add(self.initial)
         solver.add(self.transition)
         solver.add(z3.Not(self._prime_formula(self.property)))
+        self._debug_solver(solver, "Checking 1-step counterexample: I ∧ T ∧ ¬P'")
         if solver.check() == z3.sat:  # I ∧ T ∧ ¬P'
-            self._debug_print("Property violated in 1-step")
+            self._debug_print("Property violated in 1-step", dump=True)
             return False
 
         # Initialize F_0, F_1, ... to assume that P is invariant,
@@ -131,6 +188,8 @@ class IC3Prover:
         # F_0 is interpreted as I ∧ /\ clauses(F_0).
 
         for k in count(1):
+            self._debug_print(f"Starting IC3 iteration {k}")
+
             # Assertions:
             # (1): for all i >= 0, I -> F_i
             # (2): for all i >= 0, F_i -> P
@@ -140,13 +199,16 @@ class IC3Prover:
 
             # Extend with new frame: F_k+1 := P
             self.frames.append(Frame(self.property, set(), k + 1))
+            self._debug_print(f"Extended with new frame F_{k + 1}")
 
             # Strengthen F_k
+            self._debug_print(f"Strengthening frame F_{k}")
             if not self.strengthen(k):
-                self._debug_print(f"IC3: Found counterexample at iteration {k}")
+                self._debug_print(f"Found counterexample at iteration {k}", dump=True)
                 return False
 
             # Propagate clauses
+            self._debug_print(f"Propagating clauses forward from F_1 to F_{k}")
             self.propagate_clauses(k)
 
             # Check for convergence:
@@ -155,8 +217,10 @@ class IC3Prover:
             # F_i is an inductive strengthening of P, proving P is an invariant.
             for i in range(1, k + 1):
                 if self.frames[i].clauses == self.frames[i + 1].clauses:
-                    self._debug_print(f"IC3: Converged at frame {i}")
+                    self._debug_print(f"Converged! F_{i} = F_{i + 1}", dump=True)
                     return True
+
+            self._debug_print(f"Completed iteration {k}, continuing...", dump=True)
         return None
 
     def strengthen(self, k: int):
@@ -170,17 +234,28 @@ class IC3Prover:
         # While sat(F_k ∧ T ∧ ¬P') i.e. while a bad state exists
         # The bad state s being one of which is one step away from
         # violating P.
+        strengthen_iteration = 0
         while True:
+            strengthen_iteration += 1
+            self._debug_print(f"Strengthen iteration {strengthen_iteration} for F_{k}")
+
             # Is there a state s in F_k that can take a single
             # transition into a state s' that violates P?
             solver = z3.Solver()
             solver.add(self.frames[k].to_z3())
             solver.add(self.transition)
             solver.add(z3.Not(self._prime_formula(self.property)))
+
+            self._debug_solver(
+                solver, f"Checking for bad states in F_{k}: F_{k} ∧ T ∧ ¬P'"
+            )
+
             if solver.check() == z3.unsat:
                 # If the answer to the above question is no,
                 # F_k is strong enough
+                self._debug_print(f"F_{k} is strong enough (no bad states found)")
                 break
+
             # If the answer to the above question is yes,
             # there is a pair of states (s, s') such that
             # s satisfies F_k, (s, s') satisfies T, and
@@ -188,15 +263,23 @@ class IC3Prover:
             state = self._extract_cube(
                 solver.model()
             )  # this state can reach a bad state in one step
+            self._debug_print(f"Found bad state: {state}")
+
+            self._debug_print("Inductively generalizing state...")
             n = self.inductively_generalize(state, k - 2, k)
             if n is None:
+                self._debug_print("Failed to generalize - counterexample found")
                 return False  # Counterexample
 
+            self._debug_print(f"State generalized at level {n}, pushing forward...")
             # After finding that a state s can reach a bad state and
             # discovering ¬s is inductive relative to some F_n, we need
             # to "push" this generalization forward to higher frames
             # until we can block s at level k.
             if self.push_generalization({(n + 1, state)}, k) is False:
+                self._debug_print(
+                    "Failed to push generalization - counterexample found"
+                )
                 return False  # Counterexample
         return True
 
@@ -302,8 +385,16 @@ class IC3Prover:
             solver.add(self.transition)
             solver.add(z3.Not(state))
             solver.add(self._prime_formula(state))
+
+            self._debug_solver(
+                solver, "Checking if state is reachable from initial: F_0 ∧ T ∧ ¬s ∧ s'"
+            )
+
             if solver.check() == z3.sat:
                 # State has an initial predecessor.
+                self._debug_print(
+                    "State is reachable from initial state - counterexample!"
+                )
                 return None
 
         # Find maximum i where ¬s is NOT inductive relative to F_i
@@ -326,10 +417,23 @@ class IC3Prover:
             solver.add(self.transition)
             solver.add(z3.Not(state))
             solver.add(self._prime_formula(state))
+
+            self._debug_solver(
+                solver,
+                f"Checking if ¬s is NOT inductive relative to F_{i}: F_{i} ∧ T ∧ ¬s ∧ s'",
+            )
+
             if solver.check() == z3.sat:
                 # ¬s is not inductive relative to F_i
+                self._debug_print(
+                    f"¬s is NOT inductive relative to F_{i}, generating clause at level {i - 1}"
+                )
                 self.generate_clause(state, i - 1, k)
                 return i - 1
+
+        self._debug_print(
+            f"¬s is inductive relative to all frames up to F_{k}, generating clause at level {k}"
+        )
         self.generate_clause(state, k, k)
         return k
 
@@ -338,10 +442,13 @@ class IC3Prover:
         Generate a clause from ¬state that's inductive relative to F_i.
         Add it to F_1, ..., F_i+1.
         """
+        self._debug_print(f"Generating clause from state at level {i}")
         clause = self._generalize(state, self.frames[i])
+        self._debug_print(f"Generated clause: {clause.literals}")
 
         for j in range(1, i + 2):
             self.frames[j].clauses.add(clause)
+            self._debug_print(f"Added clause to F_{j}")
 
     def push_generalization(self, states: Set[Tuple[int, z3.BoolRef]], k: int):
         """Pushes inductive generalization to higher frame levels."""
@@ -362,16 +469,29 @@ class IC3Prover:
         # This method is initially called with {(n+1, state)}, k. n is the level
         # where ¬s was found to be inductive. So s has been blocked up to level
         # n+1.
+        push_iteration = 0
         while True:
+            push_iteration += 1
+            self._debug_print(f"Push generalization iteration {push_iteration}")
+
             # (level, state)
             # pick state with minimum level in the set
             (n, state) = min(states, key=lambda state: state[0])
+            self._debug_print(f"Processing state at level {n}: {state}")
+
             if n > k:
+                self._debug_print(f"All states blocked above level {k}, push complete")
                 return  # All states blocked above k, so we are done.
+
             solver = z3.Solver()
             solver.add(self.frames[n].to_z3())
             solver.add(self.transition)
             solver.add(self._prime_formula(state))
+
+            self._debug_solver(
+                solver, f"Checking for predecessors in F_{n}: F_{n} ∧ T ∧ s'"
+            )
+
             # if sat(F_n ∧ T ∧ s'):
             if solver.check() == z3.sat:
                 # Found a predecessor
@@ -380,16 +500,34 @@ class IC3Prover:
                 # higher. So we recursively block the predecessor first. We do
                 # this by adding it to the states set.
                 predecessor = self._extract_cube(solver.model())
+                self._debug_print(f"Found predecessor: {predecessor}")
+                self._debug_print("Recursively blocking predecessor...")
+
                 m = self.inductively_generalize(predecessor, n - 2, k)
                 if m is None:
+                    self._debug_print(
+                        "Failed to generalize predecessor - counterexample found"
+                    )
                     return False
+
                 states.add((m + 1, predecessor))
+                self._debug_print(f"Added predecessor to states set at level {m + 1}")
             else:
+                self._debug_print(
+                    "No predecessors found, pushing state to higher level"
+                )
                 m = self.inductively_generalize(state, n, k)
                 if m is None:
+                    self._debug_print(
+                        "Failed to generalize state - counterexample found"
+                    )
                     return False
+
                 states.discard((n, state))
                 states.discard((m + 1, state))
+                self._debug_print(
+                    f"State pushed to level {m + 1}, removed from states set"
+                )
         return True
 
     def propagate_clauses(self, k: int):
@@ -401,13 +539,32 @@ class IC3Prover:
         # A clause is only propagated to F_i+1 if it is inductive
         # relative to F_i. To determine this, it needs to satisfy
         # consecution relative to F_i.
+        propagated_count = 0
+
         for i in range(1, k + 1):
+            frame_propagated = 0
+            self._debug_print(f"Propagating clauses from F_{i} to F_{i + 1}")
+
             for clause in self.frames[i].clauses:
-                if self._check_consecution(clause, self.frames[i]) is None:
+                consecution_result = self._check_consecution(clause, self.frames[i])
+
+                if consecution_result is None:
                     # Clause doesn't violate consecution relative to F_i,
-                    # which means it'sinductive relative to F_i. This
-                    # means it can be safelyconjoined with clauses(F_i+1)
+                    # which means it's inductive relative to F_i. This
+                    # means it can be safely conjoined with clauses(F_i+1)
                     self.frames[i + 1].clauses.add(clause)
+                    frame_propagated += 1
+                    propagated_count += 1
+                else:
+                    self._debug_print(
+                        f"Clause {clause.literals} cannot be propagated (consecution fails)"
+                    )
+
+            self._debug_print(
+                f"Propagated {frame_propagated} clauses from F_{i} to F_{i + 1}"
+            )
+
+        self._debug_print(f"Total clauses propagated: {propagated_count}")
 
     def _generalize(self, cube: z3.BoolRef, frame: Frame):
         """
@@ -475,6 +632,11 @@ class IC3Prover:
         solver.add(self.transition)
         solver.add(z3.Not(self._prime_formula(clause.to_z3())))
 
+        self._debug_solver(
+            solver,
+            f"Checking consecution for clause {clause.literals}: F_{frame.level} ∧ c ∧ T ∧ ¬c'",
+        )
+
         if solver.check() == z3.sat:
             # Found predecessor
             return self._extract_cube(solver.model())
@@ -496,4 +658,11 @@ class IC3Prover:
         solver = z3.Solver()
         solver.add(self.initial)
         solver.add(z3.Not(clause.to_z3()))
-        return solver.check() == z3.unsat
+
+        self._debug_solver(
+            solver, f"Checking initiation for clause {clause.literals}: I ∧ ¬c"
+        )
+
+        result = solver.check() == z3.unsat
+        self._debug_print(f"Initiation check result: {result}")
+        return result

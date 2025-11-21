@@ -221,26 +221,23 @@ class TransitionExtractor:
             ssa = self._get_or_compute_z3_expr(initial_ssa)
             constraints.append(var == ssa)
 
-        # Loop entry condition
-        # The before_region ends with a scf.ConditionOp that determines loop entry
-        condition_op = while_op.before_region.block.last_op
-        if isinstance(condition_op, scf.ConditionOp):
-            condition_expr = self._get_or_compute_z3_expr(condition_op.condition)
-            constraints.append(condition_expr)
-
         return z3.And(constraints) if constraints else z3.BoolVal(True)
 
     def _extract_transition(self, while_op: scf.WhileOp, var_names):
         """
         Extract transition relation T(x, x').
 
-        Map after_region block args -> current state (x)
-        Map yield arguments -> next state (x')
-
-        Symbolically execute loop to relate them.
+        For while loops, the transition should model:
+        - If loop condition holds: execute body and update variables
+        - If loop condition doesn't hold: variables remain unchanged (loop exit)
         """
 
-        # Symbolically execute body
+        # Extract loop condition from before_region
+        condition_op = while_op.before_region.block.last_op
+        assert isinstance(condition_op, scf.ConditionOp)
+        loop_condition = self._get_or_compute_z3_expr(condition_op.condition)
+
+        # Symbolically execute body to get body updates
         body_constraints = []
         for op in while_op.after_region.block.ops:
             if isinstance(op, scf.YieldOp):
@@ -253,15 +250,31 @@ class TransitionExtractor:
         yield_op = while_op.after_region.block.last_op
         assert isinstance(yield_op, scf.YieldOp)
 
-        # Map yield arguments to next state variables
-        next_state_constraints = []
+        # Create transition for when loop condition is true
+        loop_body_updates = []
         for var_name, next_ssa in zip(var_names, yield_op.arguments):
             z3_next_var = self.var_to_z3[f"{var_name}'"]
             z3_next_expr = self.ssa_to_z3[next_ssa]
-            next_state_constraints.append(z3_next_var == z3_next_expr)
+            loop_body_updates.append(z3_next_var == z3_next_expr)
 
-        all_constraints = body_constraints + next_state_constraints
-        return z3.And(all_constraints) if all_constraints else z3.BoolVal(True)
+        # When loop condition is true, execute body
+        condition_true_branch = z3.And(
+            [loop_condition] + body_constraints + loop_body_updates
+        )
+
+        # When loop condition is false, variables remain unchanged
+        condition_false_updates = []
+        for var_name in var_names:
+            current_var = self.var_to_z3[var_name]
+            next_var = self.var_to_z3[f"{var_name}'"]
+            condition_false_updates.append(next_var == current_var)
+
+        condition_false_branch = z3.And(
+            [z3.Not(loop_condition)] + condition_false_updates
+        )
+
+        # Complete transition: either execute body or stay same
+        return z3.Or(condition_true_branch, condition_false_branch)
 
     def _extract_property(self, while_op: scf.WhileOp, var_names):
         """

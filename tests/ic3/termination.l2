@@ -1,7 +1,7 @@
 ; RUN: %l2 %s --verify | filecheck %s
 
 x = 10
-%while x >= 0 {
+%while x >= 1 {
     %assert # x >= 0 #
     x = x - 1
 }

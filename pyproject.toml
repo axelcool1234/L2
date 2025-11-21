@@ -39,4 +39,5 @@ dev = [
 test = [
     "filecheck>=1.0.3",
     "lit>=18.1.8",
+    "psutil>=7.1.3",
 ]

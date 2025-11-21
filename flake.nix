@@ -175,6 +175,33 @@
         };
         packages.${projectAsNixPkg.pname} = self.packages.${system}.default;
 
+        packages.ruff-check = pkgs.writeShellScriptBin "ruff-check" ''
+          export PATH="${devVirtualenv}/bin:$PATH"
+          ruff check --no-cache .
+        '';
+
+        packages.ruff-format = pkgs.writeShellScriptBin "ruff-format" ''
+          export PATH="${devVirtualenv}/bin:$PATH"
+          ruff format --check .
+        '';
+
+        packages.pyrefly-check = pkgs.writeShellScriptBin "pyrefly-check" ''
+          export PATH="${devVirtualenv}/bin:$PATH"
+          pyrefly check .
+        '';
+
+        packages.test = pkgs.writeShellScriptBin "test" ''
+          set -e
+          export PATH="${testVirtualenv}/bin:${pkgs.clang}/bin:${pkgs.llvmPackages.mlir}/bin:$PATH"
+          export BIGNUM_RUNTIME_PATH="${self.packages.${system}.default}/lib/bignum_runtime.o"
+          export LDFLAGS="-L${pkgs.gmp.out}/lib"
+
+          echo "Running L2 tests..."
+          lit -v tests/l2
+          echo "Running IC3 tests..."
+          lit -v tests/ic3
+        '';
+
         # App for `nix run`
         apps.default = {
           type = "app";
@@ -184,47 +211,46 @@
 
         apps.test = {
           type = "app";
-          program = "${pkgs.writeShellScriptBin "test" ''
-            set -e
-            export PATH="${testVirtualenv}/bin:${pkgs.clang}/bin:${pkgs.llvmPackages.mlir}/bin:$PATH"
-            export BIGNUM_RUNTIME_PATH="${self.packages.${system}.default}/lib/bignum_runtime.o"
-            export LDFLAGS="-L${pkgs.gmp.out}/lib"
-
-            echo "Running L2 tests..."
-            lit -v tests/l2
-            echo "Running IC3 tests..."
-            lit -v tests/ic3
-          ''}/bin/test";
+          program = "${self.packages.${system}.test}/bin/test";
         };
 
         apps.ruff-check = {
           type = "app";
-          program = "${pkgs.writeShellScriptBin "ruff-check" ''
-            export PATH="${devVirtualenv}/bin:$PATH"
-            ruff check .
-          ''}/bin/ruff-check";
+          program = "${self.packages.${system}.ruff-check}/bin/ruff-check";
         };
 
         apps.ruff-format = {
           type = "app";
-          program = "${pkgs.writeShellScriptBin "ruff-format" ''
-            export PATH="${devVirtualenv}/bin:$PATH"
-            ruff format --check .
-          ''}/bin/ruff-format";
+          program = "${self.packages.${system}.ruff-format}/bin/ruff-format";
         };
 
         apps.pyrefly-check = {
           type = "app";
-          program = "${pkgs.writeShellScriptBin "pyrefly-check" ''
-            export PATH="${devVirtualenv}/bin:$PATH"
-            pyrefly check .
-          ''}/bin/pyrefly-check";
+          program = "${self.packages.${system}.pyrefly-check}/bin/pyrefly-check";
         };
 
         # `nix flake check`
         checks = {
           # Build check - make sure the package builds
           build = self.packages.${system}.default;
+
+          test = pkgs.runCommand "test" { } ''
+            cd ${./.}
+            ${self.packages.${system}.test}/bin/test
+            touch $out
+          '';
+
+          ruff = pkgs.runCommand "ruff-check" { } ''
+            cd ${./.}
+            ${self.packages.${system}.ruff-check}/bin/ruff-check
+            touch $out
+          '';
+
+          pyrefly = pkgs.runCommand "pyrefly-check" { } ''
+            cd ${./.}
+            ${self.packages.${system}.pyrefly-check}/bin/pyrefly-check
+            touch $out
+          '';
         };
 
         # There are two different modes of development:

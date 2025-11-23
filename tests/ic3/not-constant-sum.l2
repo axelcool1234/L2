@@ -1,0 +1,12 @@
+; RUN: %l2 %s --verify | filecheck %s
+
+x = 0
+y = 10
+%while x < 10 {
+    %assert # x + y == 10 #
+    x = x + 1      ; break the invariant by increasing y
+    y = y + 1
+}
+
+; CHECK: Property violated.
+

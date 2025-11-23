@@ -1,0 +1,10 @@
+; RUN: %l2 %s --verify | filecheck %s
+
+x = 1
+%while x < 10 {
+    %assert # x % 2 == 1 #
+    x = x + 1   ; will make x even
+}
+
+; CHECK: Property violated.
+

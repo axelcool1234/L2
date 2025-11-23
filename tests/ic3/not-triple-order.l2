@@ -1,0 +1,14 @@
+; RUN: %l2 %s --verify | filecheck %s
+
+x = 0
+y = 5
+z = 10
+%while %T {
+    %assert # y >= x && z >= y #
+    x = x + 1
+    y = y + 1
+    z = z - 1   ; shrink z compared to y
+}
+
+; CHECK: Property violated.
+

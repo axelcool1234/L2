@@ -1,0 +1,14 @@
+; RUN: %l2 %s --verify | filecheck %s
+
+x = 0
+y = 5
+z = 7
+%while %T {
+    %assert # x + y + z == 12 #
+    x = x + 1
+    y = y + 1
+    z = z - 2
+}
+
+; CHECK: Property verified.
+

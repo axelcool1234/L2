@@ -17,6 +17,30 @@ from itertools import count
 
 
 @dataclass
+class Cube:
+    """A cube is a conjunction of literals"""
+
+    literals: List[z3.BoolRef]
+
+    def __hash__(self) -> int:
+        return hash(tuple(sorted([str(literal) for literal in self.literals])))
+
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, Cube):
+            return False
+        return set(str(literal) for literal in self.literals) == set(
+            str(literal) for literal in other.literals
+        )
+
+    def to_z3(self) -> z3.BoolRef:
+        if not self.literals:
+            return z3.BoolVal(True)
+        smt_or = z3.And(self.literals)
+        assert isinstance(smt_or, z3.BoolRef)
+        return smt_or
+
+
+@dataclass
 class Clause:
     """A clause is a disjunction of literals (CNF)"""
 
@@ -310,7 +334,7 @@ class IC3Prover:
         return True  # Successfully strengthened
 
     def inductively_generalize(
-        self, state: z3.BoolRef, min_level: int, k: int
+        self, state: Cube, min_level: int, k: int
     ) -> Optional[int]:
         """
         Finds a state level i where ¬s is inductive relative to F_i. It then
@@ -427,9 +451,9 @@ class IC3Prover:
             # do the invalidity check above.
             solver = z3.Solver()
             solver.add(self.frames[0].to_z3())
-            solver.add(z3.Not(state))
+            solver.add(z3.Not(state.to_z3()))
             solver.add(self.transition)
-            solver.add(self._prime_formula(state))
+            solver.add(self._prime_formula(state.to_z3()))
 
             self._debug_solver(
                 solver, "Checking if state is reachable from initial: F_0 ∧ T ∧ ¬s ∧ s'"
@@ -457,8 +481,8 @@ class IC3Prover:
             solver = z3.Solver()
             solver.add(self.frames[i].to_z3())
             solver.add(self.transition)
-            solver.add(z3.Not(state))
-            solver.add(self._prime_formula(state))
+            solver.add(z3.Not(state.to_z3()))
+            solver.add(self._prime_formula(state.to_z3()))
 
             self._debug_solver(
                 solver,
@@ -479,7 +503,7 @@ class IC3Prover:
         self.generate_clause(state, k)
         return k
 
-    def generate_clause(self, state: z3.BoolRef, i: int) -> None:
+    def generate_clause(self, state: Cube, i: int) -> None:
         """
         Generate a clause from ¬state that's inductive relative to F_i.
         Add it to F_1, ..., F_i+1.
@@ -494,7 +518,7 @@ class IC3Prover:
             self.frames[j].clauses.add(clause)
             self._debug_print(f"Added clause to F_{j}")
 
-    def push_generalization(self, states: Set[Tuple[int, z3.BoolRef]], k: int) -> bool:
+    def push_generalization(self, states: Set[Tuple[int, Cube]], k: int) -> bool:
         """
         Pushes inductive generalization to higher frame levels.
         Returns:
@@ -546,7 +570,7 @@ class IC3Prover:
             solver = z3.Solver()
             solver.add(self.frames[n].to_z3())
             solver.add(self.transition)
-            solver.add(self._prime_formula(state))
+            solver.add(self._prime_formula(state.to_z3()))
 
             self._debug_solver(
                 solver, f"Checking for predecessors in F_{n}: F_{n} ∧ T ∧ s'"
@@ -626,22 +650,16 @@ class IC3Prover:
 
         self._debug_print(f"Total clauses propagated: {propagated_count}")
 
-    def _generalize(self, cube: z3.BoolRef, frame: Frame) -> Clause:
+    def _generalize(self, cube: Cube, frame: Frame) -> Clause:
         """
         Find minimal inductive subclause of ¬cube relative to frame.
         """
         # Convert cube (conjunction) to clause (disjunction of negations)
-        literals: List[z3.BoolRef] = []
-        if z3.is_and(cube):
-            for arg in cube.children():
-                literal = z3.Not(arg)
-                assert isinstance(literal, z3.BoolRef)
-                literals.append(literal)
-        else:
-            literal = z3.Not(cube)
-            assert isinstance(literal, z3.BoolRef)
-            literals.append(literal)
-
+        literals = []
+        for literal in cube.literals:
+            negated_literal = z3.Not(literal)
+            assert isinstance(negated_literal, z3.BoolRef)
+            literals.append(negated_literal)
         clause = Clause(literals)
         # TODO: Implement the algorithm from https://ieeexplore.ieee.org/document/6679405
         # For now, just pretend the clause we have is the most generalized.
@@ -656,7 +674,7 @@ class IC3Prover:
         assert isinstance(result, z3.BoolRef)
         return result
 
-    def _extract_cube(self, model: z3.ModelRef) -> z3.BoolRef:
+    def _extract_cube(self, model: z3.ModelRef) -> Cube:
         """
         Extract a cube (conjunction of literals) from a model.
         A cube represents a concrete state.
@@ -664,9 +682,10 @@ class IC3Prover:
         literals = []
         for v in self.vars:
             val = model.eval(self.state_vars[v], model_completion=True)
-            literals.append(self.state_vars[v] == val)
-        cube = z3.And(literals)
-        assert isinstance(cube, z3.BoolRef)
+            literal = self.state_vars[v] == val
+            assert isinstance(literal, z3.BoolRef)
+            literals.append(literal)
+        cube = Cube(literals)
         return cube
 
     def _check_consecution(self, clause: Clause, frame: Frame) -> bool:

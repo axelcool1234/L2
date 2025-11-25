@@ -1,5 +1,12 @@
 # src/ic3/ic3.py
 
+# Sources:
+# SAT-based model checking without unrolling:                                  https://dl.acm.org/doi/10.5555/1946284.1946291
+# Understanding IC3:                                                           https://dl.acm.org/doi/10.1007/978-3-642-31612-8_1
+# Better generalization in IC3:                                                https://ieeexplore.ieee.org/document/6679405
+# Checking Safety by Inductive Generalization of Counterexamples to Induction: https://dl.acm.org/doi/abs/10.5555/1333874.1334140
+# Towards a Theoretical Understanding of Property-Directed Reachability:       https://youtu.be/szbBSWzCbt0?si=LUmb9UsywHX50X6L
+
 from typing import Optional
 from typing import Tuple
 from typing import Set

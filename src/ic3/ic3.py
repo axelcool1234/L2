@@ -291,10 +291,10 @@ class IC3Prover:
                 return False  # Counterexample
 
             self._debug_print(f"State generalized at level {n}, pushing forward...")
-            # After finding that a bad state s that can violate P in one step and
+            # After finding a bad state s that can violate P in one step and
             # discovering ¬s is inductive relative to some F_n, we need
-            # to "push" this generalization forward to higher frames
-            # until we can block s at level k.
+            # to "push" a generalization c ⊆ ¬s forward to higher frames
+            # until we can block s (and other similar states) at level k.
             if self.push_generalization({(n + 1, state)}, k) is False:
                 self._debug_print(
                     "Failed to push generalization - counterexample found"
@@ -527,11 +527,15 @@ class IC3Prover:
 
             # Check for predecessor of s in F_n
 
-            # TODO: Something is wrong in my reasoning here. Not sure why we are checking sat(F_n ∧ T ∧ s') (which is correct, my comment is wrong)
+            # To check that ¬s is inductive relative to F_n:
+            # Check validity: ⊨ (F_n ∧ T -> ¬s')
+            # (F_n ∧ T -> ¬s') ≡ ¬F_n ∨ ¬T ∨ ¬s'
+            # Validity check ⟺ unsat(¬(¬F_n ∨ ¬T ∨ ¬s')) ≡ unsat(F_n ∧ T ∧ s')
+            # Invalidity check ⟺ sat(F_n ∧ T ∧ s')
             #
-            # Check validity: ⊨ (F_n ∧ T -> s')
-            # (F_n ∧ T -> s') ≡ ¬F_n ∨ ¬T ∨ s'
-            # Validity check ⟺ unsat(¬(¬F_n ∨ ¬T ∨ s')) ≡ unsat(F_n ∧ T ∧ ¬s')
+            # To check that ¬s is NOT inductive relative to F_n (and thus there
+            # is a predecessor state that can transition to state s in one step),
+            # do the invalidity check above.
             solver = z3.Solver()
             solver.add(self.frames[n].to_z3())
             solver.add(self.transition)
@@ -541,13 +545,12 @@ class IC3Prover:
                 solver, f"Checking for predecessors in F_{n}: F_{n} ∧ T ∧ s'"
             )
 
-            # if sat(F_n ∧ T ∧ s'):
             if solver.check() == z3.sat:
-                # Found a predecessor
                 # This means there exists a state in F_n that can transition to
-                # state s. This predecessor is blocking us from pushing state s
-                # higher. So we recursively block the predecessor first. We do
-                # this by adding it to the states set.
+                # state s. This predecessor is blocking us from pushing state ¬s
+                # higher (we are actually pushing generalization c ⊆ ¬s which
+                # blocks s and other similar states). So we recursively block the
+                # predecessor first. We do this by adding it to the states set.
                 predecessor = self._extract_cube(solver.model())
                 self._debug_print(f"Found predecessor: {predecessor}")
                 self._debug_print("Recursively blocking predecessor...")

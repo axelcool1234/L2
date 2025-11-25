@@ -1,5 +1,6 @@
 # src/ic3/ic3.py
 
+from typing import Optional
 from typing import Tuple
 from typing import Set
 import z3
@@ -14,10 +15,10 @@ class Clause:
 
     literals: List[z3.BoolRef]
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(tuple(sorted([str(literal) for literal in self.literals])))
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         if not isinstance(other, Clause):
             return False
         return set(str(literal) for literal in self.literals) == set(
@@ -65,7 +66,7 @@ class IC3Prover:
         transition: z3.BoolRef,
         property: z3.BoolRef | None,
         debug=False,
-    ):
+    ) -> None:
         """
         variables: List of program variable names
         initial: I(x) - Initial condition formula
@@ -86,13 +87,13 @@ class IC3Prover:
 
         self._debug = debug
 
-    def _debug_print(self, string: str, dump=False):
+    def _debug_print(self, string: str, dump=False) -> None:
         if self._debug:
             print(f"[IC3] {string}")
             if dump:
                 self._dump_frames()
 
-    def _dump_frames(self):
+    def _dump_frames(self) -> None:
         """Print detailed frame information"""
         if not self._debug:
             return
@@ -110,7 +111,7 @@ class IC3Prover:
             print()
         print("=" * 80)
 
-    def _debug_solver(self, solver, context="Unknown context"):
+    def _debug_solver(self, solver: z3.Solver, context="Unknown context") -> None:
         """Enhanced solver state printing with context"""
         if not self._debug:
             return
@@ -119,7 +120,7 @@ class IC3Prover:
         assertions = solver.assertions()
         if assertions:
             print(f"Solver has {len(assertions)} assertion(s):")
-            for i, assertion in enumerate(assertions):
+            for i, assertion in enumerate(assertions):  # pyrefly: ignore
                 print(f"  {i + 1}: {assertion}")
         else:
             print("Solver has no assertions")
@@ -144,7 +145,7 @@ class IC3Prover:
 
         print("-" * 60)
 
-    def prove(self):
+    def prove(self) -> Optional[bool]:
         """
         Main IC3 loop.
 
@@ -157,8 +158,11 @@ class IC3Prover:
         # A formula F implies another formula G, written F -> G,
         # if every satisfying assignment of F satisfies G.
 
-        # Initially, the satisfiability of I ∧ ¬P and I ∧ T ∧ ¬P'
-        # are checked to detect 0-step and 1-step counterexamples.
+        # Initially, 0-step and 1-step counterexamples are detected.
+
+        # Check validity: ⊨ (I -> P)
+        # I -> P ≡ ¬I ∨ P
+        # Validity check ⟺ unsat(¬(¬I ∨ P)) ≡ unsat(I ∧ ¬P)
         solver = z3.Solver()
         solver.add(self.initial)
         solver.add(z3.Not(self.property))
@@ -167,6 +171,9 @@ class IC3Prover:
             self._debug_print("Property violated in 0-step (initial state)", dump=True)
             return False
 
+        # Check validity: ⊨ (I ∧ T -> P')
+        # I ∧ T -> P' ≡ ¬I ∨ ¬P v P'
+        # Validity check ⟺ unsat(¬(¬I ∨ ¬P v P')) ≡ unsat(I ∧ P ∧ ¬P')
         solver = z3.Solver()
         solver.add(self.initial)
         solver.add(self.transition)
@@ -223,14 +230,15 @@ class IC3Prover:
             self._debug_print(f"Completed iteration {k}, continuing...", dump=True)
         return None
 
-    def strengthen(self, k: int):
-        # Strengthens F_i for 1 <= i <= k
-        # so that F_i-states are at least
-        # k - i + 1 steps away from violating P
-        # Iterates until F_k excludes all states
-        # that lead to a violation of P in one
-        # step.
-
+    def strengthen(self, k: int) -> bool:
+        """
+        Strengthens F_i for 1 <= i <= k so that F_i-states are at least
+        k - i + 1 steps away from violating P. Iterates until F_k excludes
+        all "bad" states that lead to a violation of P in one step.
+        Returns:
+            True if successfully strengthened
+            False if counterexample found
+        """
         # While sat(F_k ∧ T ∧ ¬P') i.e. while a bad state exists
         # The bad state s being one of which is one step away from
         # violating P.
@@ -241,6 +249,13 @@ class IC3Prover:
 
             # Is there a state s in F_k that can take a single
             # transition into a state s' that violates P?
+            # If not, F_k is strong enough. We can check if F_k
+            # is strong enough by checking if a transition from
+            # F_k always implies P'.
+
+            # Check validity: ⊨ (F_k ∧ T -> P')
+            # (F_k ∧ T -> P') ≡ ¬F_k ∨ ¬T ∨ P'
+            # Validity check ⟺ unsat(¬(¬F_k ∨ ¬T ∨ P')) ≡ unsat(F_k ∧ T ∧ ¬P')
             solver = z3.Solver()
             solver.add(self.frames[k].to_z3())
             solver.add(self.transition)
@@ -251,28 +266,32 @@ class IC3Prover:
             )
 
             if solver.check() == z3.unsat:
-                # If the answer to the above question is no,
+                # There is no state s in F_k that can take a single
+                # transition into a state s' that violates P. Thus,
                 # F_k is strong enough
                 self._debug_print(f"F_{k} is strong enough (no bad states found)")
                 break
 
-            # If the answer to the above question is yes,
-            # there is a pair of states (s, s') such that
-            # s satisfies F_k, (s, s') satisfies T, and
-            # s' violates P (i.e. s' ⊨ ¬P)
+            # There is a state s in F_k that can take a single
+            # transition into a state s' that violates P. This
+            # means there is a pair of states (s, s') such that
+            # s satisfies F_k, (s, s') satisfies T, and s'
+            # violates P (i.e. s' ⊨ ¬P)
             state = self._extract_cube(
                 solver.model()
             )  # this state can reach a bad state in one step
             self._debug_print(f"Found bad state: {state}")
 
             self._debug_print("Inductively generalizing state...")
-            n = self.inductively_generalize(state, k - 2, k)
+            n = self.inductively_generalize(
+                state, k - 2, k
+            )  # TODO: Explain why k-2 for min_level
             if n is None:
                 self._debug_print("Failed to generalize - counterexample found")
                 return False  # Counterexample
 
             self._debug_print(f"State generalized at level {n}, pushing forward...")
-            # After finding that a state s can reach a bad state and
+            # After finding that a bad state s that can violate P in one step and
             # discovering ¬s is inductive relative to some F_n, we need
             # to "push" this generalization forward to higher frames
             # until we can block s at level k.
@@ -281,15 +300,25 @@ class IC3Prover:
                     "Failed to push generalization - counterexample found"
                 )
                 return False  # Counterexample
-        return True
+        return True  # Successfully strengthened
 
-    def inductively_generalize(self, state: z3.BoolRef, min_level: int, k: int):
+    def inductively_generalize(
+        self, state: z3.BoolRef, min_level: int, k: int
+    ) -> Optional[int]:
+        """
+        Finds a state level i where ¬s is inductive relative to F_i. It then
+        generates a generalized clause c ⊆ ¬s and appends it to F_1, ..., F_i+1
+        to block bad state s.
+        Returns:
+            integer of state level i where ¬s is inductive relative to F_i
+            None if state s is reachable from initial state (counterexample!)
+        """
         # Given:
         # Current frame sequence F_0, ..., F_k
         # A state s such that s ∈ F_k and there's a transition T(s, s') where
         # s' ⊨ ¬P
-        #
         # We want to find a clause c ⊆ ¬s (i.e. a generalization of "not s")
+        #
         # such that F_i ∧ T -> c' for some i.
         #
         # That means c is inductive relative to F_i - if all F_i-states satisfy
@@ -379,11 +408,20 @@ class IC3Prover:
 
         # Check if state is reachable from I
         # (if it is, P is not an invariant).
-        if min_level < 0:  # and sat(F_0 ∧ T ∧ ¬s ∧ s')
+        if min_level < 0:  # and sat(F_0 ∧ ¬s ∧ T ∧ s')
+            # To check that s has no initial predecessor
+            # (i.e. ¬s is inductive relative to I):
+            # Check validity: ⊨ (F_0 ∧ ¬s ∧ T -> ¬s')
+            # (F_0 ∧ ¬s ∧ T -> ¬s') ≡ ¬(F_0 ∧ ¬s ∧ T) ∨ ¬s'
+            # Validity check ⟺ unsat(¬(¬(F_0 ∧ ¬s ∧ T) ∨ ¬s')) ≡ unsat(F_0 ∧ ¬s ∧ T ∧ s')
+            # Invalidity check ⟺ sat(F_0 ∧ ¬s ∧ T ∧ s')
+            #
+            # To search for an initial predecessor of s (i.e. ¬s is not inductive at I),
+            # do the invalidity check above.
             solver = z3.Solver()
             solver.add(self.frames[0].to_z3())
-            solver.add(self.transition)
             solver.add(z3.Not(state))
+            solver.add(self.transition)
             solver.add(self._prime_formula(state))
 
             self._debug_solver(
@@ -391,27 +429,24 @@ class IC3Prover:
             )
 
             if solver.check() == z3.sat:
-                # State has an initial predecessor.
+                # State s has an initial predecessor.
                 self._debug_print(
                     "State is reachable from initial state - counterexample!"
                 )
                 return None
 
         # Find maximum i where ¬s is NOT inductive relative to F_i
-        # For ¬s to be inductive relative to F_i, the following
-        # has to be true:
-        # F_i ∧ ¬s ∧ T -> ¬s'
-        # ¬(F_i ∧ ¬s ∧ T) ∨ ¬s'
-        #
-        # To check if the above is true in all states,
-        # we need to show that the opposite is unsat.
-        # So we negate it:
-        # ¬(¬(F_i ∧ ¬s ∧ T) ∨ ¬s')
-        # F_i ∧ ¬s ∧ T ∧ s'
-        #
-        # Since we do NOT want ¬s to be inductive relative to F_i,
-        # that means we want sat.
-        for i in range(max(1, min_level + 1), k + 1):
+        for i in range(
+            max(1, min_level + 1), k + 1
+        ):  # TODO: Write a comment about what this range(max(...), ...) call is doing
+            # To check that ¬s is inductive relative to F_i:
+            # Check validity: ⊨ (F_i ∧ ¬s ∧ T -> ¬s')
+            # (F_i ∧ ¬s ∧ T -> ¬s') ≡ ¬(F_i ∧ ¬s ∧ T) ∨ ¬s'
+            # Validity check ⟺ unsat(¬(¬(F_i ∧ ¬s ∧ T) ∨ ¬s')) ≡ unsat(F_i ∧ ¬s ∧ T ∧ s')
+            # Invalidity check ⟺ sat(F_0 ∧ ¬s ∧ T ∧ s')
+            #
+            # To check that ¬s is NOT inductive relative to F_i,
+            # do the invalidity check above.
             solver = z3.Solver()
             solver.add(self.frames[i].to_z3())
             solver.add(self.transition)
@@ -424,20 +459,20 @@ class IC3Prover:
             )
 
             if solver.check() == z3.sat:
-                # ¬s is not inductive relative to F_i
+                # ¬s is NOT inductive relative to F_i
                 self._debug_print(
                     f"¬s is NOT inductive relative to F_{i}, generating clause at level {i - 1}"
                 )
-                self.generate_clause(state, i - 1, k)
+                self.generate_clause(state, i - 1)
                 return i - 1
 
         self._debug_print(
             f"¬s is inductive relative to all frames up to F_{k}, generating clause at level {k}"
         )
-        self.generate_clause(state, k, k)
+        self.generate_clause(state, k)
         return k
 
-    def generate_clause(self, state: z3.BoolRef, i: int, k: int):
+    def generate_clause(self, state: z3.BoolRef, i: int) -> None:
         """
         Generate a clause from ¬state that's inductive relative to F_i.
         Add it to F_1, ..., F_i+1.
@@ -446,12 +481,19 @@ class IC3Prover:
         clause = self._generalize(state, self.frames[i])
         self._debug_print(f"Generated clause: {clause.literals}")
 
-        for j in range(1, i + 2):
+        for j in range(
+            1, i + 2
+        ):  # TODO: Write a comment on what this range(...) is doing
             self.frames[j].clauses.add(clause)
             self._debug_print(f"Added clause to F_{j}")
 
-    def push_generalization(self, states: Set[Tuple[int, z3.BoolRef]], k: int):
-        """Pushes inductive generalization to higher frame levels."""
+    def push_generalization(self, states: Set[Tuple[int, z3.BoolRef]], k: int) -> bool:
+        """
+        Pushes inductive generalization to higher frame levels.
+        Returns:
+            True if successfully pushed generalization to level k
+            False if counterexample found
+        """
         # Insight: If a state s is not inductive relative to F_i, apply inductive
         # generalization to its F_i-state predecessors. The states variable {(i, s)}
         # represents the knowledge that s is inductive relative to F_i-1 and F_i
@@ -483,6 +525,13 @@ class IC3Prover:
                 self._debug_print(f"All states blocked above level {k}, push complete")
                 return True  # All states blocked above k, so we are done.
 
+            # Check for predecessor of s in F_n
+
+            # TODO: Something is wrong in my reasoning here. Not sure why we are checking sat(F_n ∧ T ∧ s') (which is correct, my comment is wrong)
+            #
+            # Check validity: ⊨ (F_n ∧ T -> s')
+            # (F_n ∧ T -> s') ≡ ¬F_n ∨ ¬T ∨ s'
+            # Validity check ⟺ unsat(¬(¬F_n ∨ ¬T ∨ s')) ≡ unsat(F_n ∧ T ∧ ¬s')
             solver = z3.Solver()
             solver.add(self.frames[n].to_z3())
             solver.add(self.transition)
@@ -503,7 +552,9 @@ class IC3Prover:
                 self._debug_print(f"Found predecessor: {predecessor}")
                 self._debug_print("Recursively blocking predecessor...")
 
-                m = self.inductively_generalize(predecessor, n - 2, k)
+                m = self.inductively_generalize(
+                    predecessor, n - 2, k
+                )  # TODO: Explain why it's n - 2 for min_level
                 if m is None:
                     self._debug_print(
                         "Failed to generalize predecessor - counterexample found"
@@ -516,7 +567,9 @@ class IC3Prover:
                 self._debug_print(
                     "No predecessors found, pushing state to higher level"
                 )
-                m = self.inductively_generalize(state, n, k)
+                m = self.inductively_generalize(
+                    state, n, k
+                )  # TODO: Explain why it's n for min_level rather than n - 2
                 if m is None:
                     self._debug_print(
                         "Failed to generalize state - counterexample found"
@@ -529,7 +582,7 @@ class IC3Prover:
                     f"State moved from level {n} to level {m + 1} in states set"
                 )
 
-    def propagate_clauses(self, k: int):
+    def propagate_clauses(self, k: int) -> None:
         """
         Propagate clauses forward through F_1, ..., F_k.
         If F_i ∧ T -> c', add c to clauses(F_i+1).
@@ -545,9 +598,7 @@ class IC3Prover:
             self._debug_print(f"Propagating clauses from F_{i} to F_{i + 1}")
 
             for clause in self.frames[i].clauses:
-                consecution_result = self._check_consecution(clause, self.frames[i])
-
-                if consecution_result is None:
+                if self._check_consecution(clause, self.frames[i]):
                     # Clause doesn't violate consecution relative to F_i,
                     # which means it's inductive relative to F_i. This
                     # means it can be safely conjoined with clauses(F_i+1)
@@ -565,10 +616,9 @@ class IC3Prover:
 
         self._debug_print(f"Total clauses propagated: {propagated_count}")
 
-    def _generalize(self, cube: z3.BoolRef, frame: Frame):
+    def _generalize(self, cube: z3.BoolRef, frame: Frame) -> Clause:
         """
         Find minimal inductive subclause of ¬cube relative to frame.
-        Implements the "down" algorithm.
         """
         # Convert cube (conjunction) to clause (disjunction of negations)
         literals: List[z3.BoolRef] = []
@@ -583,11 +633,11 @@ class IC3Prover:
             literals.append(literal)
 
         clause = Clause(literals)
-        # TODO: Implement the down algorithm from https://theory.stanford.edu/~arbrad/papers/fsis.pdf
+        # TODO: Implement the algorithm from https://ieeexplore.ieee.org/document/6679405
         # For now, just pretend the clause we have is the most generalized.
         return clause
 
-    def _prime_formula(self, formula: z3.BoolRef):
+    def _prime_formula(self, formula: z3.BoolRef) -> z3.BoolRef:
         """Returns the primed form of a given formula"""
         # Applying prime to a formula, F', is the same as
         # priming all of its variables.
@@ -596,7 +646,7 @@ class IC3Prover:
         assert isinstance(result, z3.BoolRef)
         return result
 
-    def _extract_cube(self, model: z3.ModelRef):
+    def _extract_cube(self, model: z3.ModelRef) -> z3.BoolRef:
         """
         Extract a cube (conjunction of literals) from a model.
         A cube represents a concrete state.
@@ -609,22 +659,16 @@ class IC3Prover:
         assert isinstance(cube, z3.BoolRef)
         return cube
 
-    def _check_consecution(self, clause: Clause, frame: Frame):
+    def _check_consecution(self, clause: Clause, frame: Frame) -> bool:
         """
         Check if frame ∧ clause ∧ T -> clause'.
-        Returns None if holds, predecessor cube if fails.
+        Returns:
+            True if consecution holds.
+            False if consecution doesn't hold.
         """
-        # F ∧ c ∧ T -> c' is equivalent to:
-        # ¬(F ∧ c ∧ T) ∨ c'
-        #
-        # To check if the above is true in all states,
-        # we need to show that the opposite is unsat.
-        # So we negate it:
-        # ¬(¬(F ∧ c ∧ T) ∨ c')
-        # ¬¬(F ∧ c ∧ T) ∧ ¬c')
-        # F ∧ c ∧ T ∧ ¬c'
-        # If the above is SAT, this clause violates its
-        # primed counterpart clause' in one step.
+        # Check validity: ⊨ (F ∧ c ∧ T -> c')
+        # (F ∧ c ∧ T -> c') ≡ ¬(F ∧ c ∧ T) ∨ c'
+        # Validity check ⟺ unsat(¬(¬(F ∧ c ∧ T) ∨ c')) ≡ unsat(F ∧ c ∧ T ∧ ¬c')
         solver = z3.Solver()
         solver.add(frame.to_z3())
         solver.add(clause.to_z3())
@@ -636,24 +680,20 @@ class IC3Prover:
             f"Checking consecution for clause {clause.literals}: F_{frame.level} ∧ c ∧ T ∧ ¬c'",
         )
 
-        if solver.check() == z3.sat:
-            # Found predecessor
-            return self._extract_cube(solver.model())
-        else:
-            return None
+        result = solver.check() == z3.unsat
+        self._debug_print(f"Consecution check result: {result}")
+        return result
 
     def _check_initiation(self, clause: Clause) -> bool:
-        """Check if I -> clause"""
-        # I -> c
-        # ¬I ∨ c
-        #
-        # To check if the above is true in all states,
-        # we need to show that the opposite is unsat.
-        # So we negate it:
-        # ¬(¬I ∨ c)
-        # I ∧ ¬c
-        # If the above is SAT, this clause fails
-        # to satisfy initiation.
+        """
+        Check if I -> clause
+        Returns:
+            True if initiation holds.
+            False if initiation doesn't hold.
+        """
+        # Check validity: ⊨ (I -> c)
+        # (I -> c) ≡ ¬I ∨ c
+        # Validity check ⟺ unsat(¬(¬I ∨ c)) ≡ unsat(I ∧ ¬c)
         solver = z3.Solver()
         solver.add(self.initial)
         solver.add(z3.Not(clause.to_z3()))

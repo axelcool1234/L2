@@ -632,7 +632,20 @@ class IC3Prover:
             self._debug_print(f"Propagating clauses from F_{i} to F_{i + 1}")
 
             for clause in self.frames[i].clauses:
-                if self._check_consecution(clause, self.frames[i]) is None:
+                # Check validity: ⊨ (F_i ∧ T -> c')
+                # (F_i ∧ T -> c') ≡ ¬(F_i ∧ T) ∨ c'
+                # Validity check ⟺ unsat(¬(¬(F_i ∧ T) ∨ c')) ≡ unsat(F_i ∧ T ∧ ¬c')
+                solver = z3.Solver()
+                solver.add(self.frames[i].to_z3())
+                solver.add(self.transition)
+                solver.add(z3.Not(self._prime_formula(clause.to_z3())))
+
+                self._debug_solver(
+                    solver,
+                    f"Checking push consecution for clause {clause}: F_{i} ∧ T ∧ ¬c'",
+                )
+
+                if solver.check() == z3.unsat:
                     # Clause doesn't violate consecution relative to F_i,
                     # which means it's inductive relative to F_i. This
                     # means it can be safely conjoined with clauses(F_i+1)
@@ -655,8 +668,8 @@ class IC3Prover:
         Find minimal inductive subclause of ¬cube relative to frame.
         """
         # Convert cube (conjunction) to clause (disjunction of negations)
-        # TODO: Implement the algorithm from https://ieeexplore.ieee.org/document/6679405
-        # Currently doesn't work.
+        # Apply MIC generalization to obtain a smaller, inductive cube
+        # TODO: implement MIC/Down from https://ieeexplore.ieee.org/document/6679405
         cube = self.mic(cube, frame.level)
         literals = []
         for literal in cube.literals:
@@ -672,37 +685,8 @@ class IC3Prover:
         Try removing each literal and keep removal if down algorithm
         says the reduced cube can be made inductive relative to F_i.
         """
-        self._debug_print(f"mic: minimization of {cube} is being attempted")
-        # iterate over a stable copy of the literals (we may modify cube)
-        for literal in list(cube.literals):
-            # candidate cube with lit removed
-            candidate_literals = list(cube.literals)
-            candidate_literals.remove(literal)
-            candidate = Cube(candidate_literals)
-            if self.down(candidate, i):
-                # removal successful: accept the smaller cube
-                self._debug_print(
-                    f"mic: removal of literal successful, {cube} -> {candidate}"
-                )
-                cube = candidate
+        # TODO: Implement this
         return cube
-
-    def down(self, cube: Cube, i: int) -> bool:
-        while True:
-            self._debug_print(f"down: checking {cube}")
-            if self._check_initiation(cube, negate=True) is not None:
-                self._debug_print(
-                    "down: initiation failed (¬cube reachable from initial), returning False"
-                )
-                return False
-            result = self._check_consecution(cube, self.frames[i], negate=True)
-            if result is None:
-                return True
-            self._debug_print(
-                f"down: consecution failed, extracted witness state s = {result}"
-            )
-            cube = Cube(list(set(cube.literals) & set(result.literals)))
-            self._debug_print(f"down: new cube: {cube}")
 
     def _prime_formula(self, formula: z3.BoolRef) -> z3.BoolRef:
         """Returns the primed form of a given formula"""
@@ -726,59 +710,3 @@ class IC3Prover:
             literals.append(literal)
         cube = Cube(literals)
         return cube
-
-    def _check_consecution(
-        self, c: Clause | Cube, frame: Frame, negate: bool = False
-    ) -> Optional[Cube]:
-        """
-        Check if frame ∧ c ∧ T -> c'.
-        Returns:
-            None if consecution holds.
-            cube that made consecution not hold.
-        """
-        # Check validity: ⊨ (F ∧ c ∧ T -> c')
-        # (F ∧ c ∧ T -> c') ≡ ¬(F ∧ c ∧ T) ∨ c'
-        # Validity check ⟺ unsat(¬(¬(F ∧ c ∧ T) ∨ c')) ≡ unsat(F ∧ c ∧ T ∧ ¬c')
-        c_to_z3 = z3.Not(c.to_z3()) if negate else c.to_z3()
-        assert isinstance(c_to_z3, z3.BoolRef)
-        solver = z3.Solver()
-        solver.add(frame.to_z3())
-        solver.add(c_to_z3)
-        solver.add(self.transition)
-        solver.add(z3.Not(self._prime_formula(c_to_z3)))
-
-        self._debug_solver(
-            solver,
-            f"Checking consecution for clause/cube {c}: F_{frame.level} ∧ c ∧ T ∧ ¬c'",
-        )
-
-        result = solver.check() == z3.unsat
-        self._debug_print(f"Consecution check result: {result}")
-        if result:
-            return None
-        return self._extract_cube(solver.model())
-
-    def _check_initiation(
-        self, c: Clause | Cube, negate: bool = False
-    ) -> Optional[Cube]:
-        """
-        Check if I -> c
-        Returns:
-            None if initiation holds.
-            cube that made initiation not hold.
-        """
-        # Check validity: ⊨ (I -> c)
-        # (I -> c) ≡ ¬I ∨ c
-        # Validity check ⟺ unsat(¬(¬I ∨ c)) ≡ unsat(I ∧ ¬c)
-        c_to_z3 = z3.Not(c.to_z3()) if negate else c.to_z3()
-        solver = z3.Solver()
-        solver.add(self.initial)
-        solver.add(z3.Not(c_to_z3))
-
-        self._debug_solver(solver, f"Checking initiation for clause/cube {c}: I ∧ ¬c")
-
-        result = solver.check() == z3.unsat
-        self._debug_print(f"Initiation check result: {result}")
-        if result:
-            return None
-        return self._extract_cube(solver.model())
